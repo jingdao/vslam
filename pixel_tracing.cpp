@@ -6,33 +6,28 @@
 #include <stdlib.h>
 #include <time.h>
 #include <SDL/SDL.h>
+#include "geometry.h"
 #define ZERO_THRESHOLD 0.01
 #define SAVE_IMAGES 0
-
-struct Point {
-	double x,y,z;
-};
-struct Vector {
-	double x,y,z;
-};
-struct Plane {
-	double a,b,c,d;
-};
-struct Triangle {
-	size_t id1,id2,id3;
-};
+#define NOISE 20
 
 std::vector<Point> vertices;
 std::vector<Triangle> faces;
 std::vector<Plane> planes;
 int imageWidth=640,imageHeight=480;
 double sensorWidth=0.004,sensorHeight=0.003,focalLength=0.005;
+double distortion_k1=0;
 int numSteps=20;
 double stepSize=1,turnRate=0.1;
 SDL_Surface* screen = NULL;
+SDL_Surface* screen_left = NULL;
+SDL_Surface* screen_right = NULL;
 int count = 0;
 //unsigned char faceColor[] = {30,50,70,70,170,170,170,170,70,70,230,230};
-unsigned char faceColor[] = {50,50,100,100,50,50,100,100,150,150,150,150,150,150,150,150};
+//unsigned char faceColor[] = {50,50,100,100,50,50,100,100,150,150,150,150,150,150,150,150};
+std::vector<int> faceColor;
+
+void pointDetection(int* src,int width,int height);
 
 double magnitude(Vector v) {
 	return sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
@@ -44,11 +39,11 @@ Vector normalize(Vector v) {
 	return w;
 }
 
-void readPLY(char* filename, std::vector<Point> *vertices, std::vector<Triangle> *faces) {
+bool readPLY(char* filename, std::vector<Point> *vertices, std::vector<Triangle> *faces) {
 	FILE* f = fopen(filename, "r");
 	if (!f) {
 		printf("File not found: %s\n", filename);
-		return;
+		return false;
 	}
 	char buf[256];
 	int numVertex,numFace;
@@ -72,8 +67,14 @@ void readPLY(char* filename, std::vector<Point> *vertices, std::vector<Triangle>
 				if (!fgets(buf,256,f))
 					break;
 				Triangle t;
-				if (sscanf(buf, "3 %lu %lu %lu",&(t.id1),&(t.id2),&(t.id3)) == 3) {
+				int r,g,b;
+				int scanned = sscanf(buf, "3 %lu %lu %lu %d %d %d",&(t.id1),&(t.id2),&(t.id3),&r,&g,&b);
+				if (scanned == 6) {
 					faces->push_back(t);
+					faceColor.push_back(r<<16|g<<8|b);
+				} else if (scanned == 3) {
+					faces->push_back(t);
+					faceColor.push_back(rand()%(1<<24));
 				} else {
 					printf("Error parsing %s\n",filename);
 					printf("Line %d: %s\n",i,buf);
@@ -84,6 +85,7 @@ void readPLY(char* filename, std::vector<Point> *vertices, std::vector<Triangle>
 		}
 	}
 	fclose(f);
+	return true;
 }
 
 void saveImage(char* imageName,unsigned char* imageBuffer,int width,int height,bool grayscale) {
@@ -95,7 +97,20 @@ void saveImage(char* imageName,unsigned char* imageBuffer,int width,int height,b
 		fwrite(imageBuffer,1,width*height,f);
 	} else {
 		fprintf(f,"P6\n%d %d\n255\n",width,height);
-		fwrite(imageBuffer,1,width*height*3,f);
+//		fwrite(imageBuffer,1,width*height*3,f);
+		int* c = (int*)imageBuffer;
+		unsigned char r,g,b;
+		for (int i=0;i<height;i++) {
+			for (int j=0;j<width;j++) {
+				b = *c & 0xFF;
+				g = (*c >> 8) & 0xFF;
+				r = (*c >> 16) & 0xFF;
+				fwrite(&r,1,1,f);
+				fwrite(&g,1,1,f);
+				fwrite(&b,1,1,f);
+				c++;
+			}
+		}
 	}
 	printf("Saved to %s\n",imageName);
 	fclose(f);
@@ -162,8 +177,23 @@ bool triangleContains(std::vector<Point> *vertices,Triangle tri,Plane plane,Poin
 	return tripleproduct1 >= 0 && tripleproduct2 >= 0 && tripleproduct3 >= 0;
 }
 
+void drawPoint(int* imageBuffer,int width,int height,Coord point,int pointSize,int color) {
+	int xmin = point.x - pointSize/2 < 0 ? 0 : point.x - pointSize/2;
+	int xmax = point.x + pointSize/2 >= width ? width-1 : point.x + pointSize/2;
+	int ymin = point.y - pointSize/2 < 0 ? 0 : point.y - pointSize/2;
+	int ymax = point.y + pointSize/2 >= height ? height-1 : point.y + pointSize/2;
+	int* p = imageBuffer + ymin*width + xmin;
+	for (int i=ymin;i<ymax;i++) {
+		for (int j=xmin;j<xmax;j++) {
+			*p++ = color;
+		}
+		p += width - xmax + xmin;
+	}
+}
+
 void draw(unsigned char* imageBuffer,Point rayOrigin,double yaw) {
-	memset(imageBuffer,0,imageWidth*imageHeight);
+	memset(imageBuffer,0,imageWidth*imageHeight*4);
+	printf("%.1f %.1f %.2f\n",rayOrigin.x,rayOrigin.y,yaw);
 	for (int i=0;i<imageHeight;i++) {
 		for (int j=0;j<imageWidth;j++) {
 			Vector principalDirection = {
@@ -171,6 +201,9 @@ void draw(unsigned char* imageBuffer,Point rayOrigin,double yaw) {
 				focalLength,
 				1.0 * (i-imageHeight/2) / imageHeight * sensorHeight
 			};
+			double distortion = 1 + distortion_k1 * (principalDirection.x*principalDirection.x + principalDirection.z*principalDirection.z);
+			principalDirection.x *= distortion;
+			principalDirection.z *= distortion;
 			principalDirection = normalize(principalDirection);
 			Vector rayDirection = {
 				principalDirection.x * cos(yaw) - principalDirection.y * sin(yaw),
@@ -199,7 +232,13 @@ void draw(unsigned char* imageBuffer,Point rayOrigin,double yaw) {
 				}
 			}
 			if (isValid) {
-				imageBuffer[i*imageWidth+j] = faceColor[faceIndex];
+				int* imagePointer = (int*) (imageBuffer + (i*imageWidth+j)*4);
+				*imagePointer = faceColor[faceIndex];
+#if NOISE
+				*imagePointer += (rand()%NOISE - NOISE/2)<<16;
+				*imagePointer += (rand()%NOISE - NOISE/2)<<8;
+				*imagePointer += (rand()%NOISE - NOISE/2);
+#endif
 			}
 		}
 	}
@@ -212,10 +251,13 @@ int main(int argc, char* argv[]) {
 	}
 
 	srand(time(NULL));
-	readPLY(argv[1],&vertices,&faces);
+	if (!readPLY(argv[1],&vertices,&faces))
+		return 1;
 	SDL_Init(SDL_INIT_VIDEO);
 	SDL_WM_SetCaption("Pixel tracing", NULL);
-	screen = SDL_SetVideoMode(imageWidth,imageHeight, 8, SDL_SWSURFACE);
+	screen = SDL_SetVideoMode(imageWidth*2,imageHeight, 32, SDL_SWSURFACE);
+	screen_left = SDL_CreateRGBSurface(SDL_SWSURFACE,imageWidth,imageHeight, 32,0xFF0000,0xFF00,0xFF,0);
+	screen_right = SDL_CreateRGBSurface(SDL_SWSURFACE,imageWidth,imageHeight, 32,0xFF0000,0xFF00,0xFF,0);
 
 	//get bounding box
 	double minX=vertices[0].x,maxX=vertices[0].x;
@@ -242,15 +284,20 @@ int main(int argc, char* argv[]) {
 		planes.push_back(v);
 	}
 
-	Point cameraOrigin = {1,0,1};
+	Point cameraOrigin = {0,0,1};
 	Vector principalDirection = {0,1,0};
+	SDL_Rect dstrect = {imageWidth,0,0,0};
 	double yaw = 0;
-	draw((unsigned char*)screen->pixels,cameraOrigin,yaw);
+	draw((unsigned char*)screen_left->pixels,cameraOrigin,yaw);
 	char buf[128];
 #if SAVE_IMAGES
 	sprintf(buf,"%s/%d.ppm",argv[2],count++);
-	saveImage(buf,(unsigned char*)screen->pixels,imageWidth,imageHeight,true);
+	saveImage(buf,(unsigned char*)screen_left->pixels,imageWidth,imageHeight,false);
 #endif
+	SDL_BlitSurface(screen_left,NULL,screen,NULL);
+	memcpy(screen_right->pixels,screen_left->pixels,imageWidth*imageHeight*4);
+	pointDetection((int*)screen_right->pixels,imageWidth,imageHeight);
+	SDL_BlitSurface(screen_right,NULL,screen,&dstrect);
 	SDL_Flip(screen);
 	SDL_Event event;
 	while (true) {
@@ -276,14 +323,20 @@ int main(int argc, char* argv[]) {
 						cameraOrigin.x -= principalDirection.x * stepSize;
 						cameraOrigin.y -= principalDirection.y * stepSize;
 						break;
+						case 'q':
+						exit(0);
 						default:
 						break;
 					}
-					draw((unsigned char*)screen->pixels,cameraOrigin,yaw);
+					draw((unsigned char*)screen_left->pixels,cameraOrigin,yaw);
 #if SAVE_IMAGES
 					sprintf(buf,"%s/%d.ppm",argv[2],count++);
-					saveImage(buf,(unsigned char*)screen->pixels,imageWidth,imageHeight,true);
+					saveImage(buf,(unsigned char*)screen_left->pixels,imageWidth,imageHeight,true);
 #endif
+					SDL_BlitSurface(screen_left,NULL,screen,NULL);
+					memcpy(screen_right->pixels,screen_left->pixels,imageWidth*imageHeight*4);
+					pointDetection((int*)screen_right->pixels,imageWidth,imageHeight);
+					SDL_BlitSurface(screen_right,NULL,screen,&dstrect);
 					SDL_Flip(screen);
 					break;
 				case SDL_QUIT:
