@@ -183,11 +183,11 @@ void drawPoint(int* imageBuffer,int width,int height,Coord point,int pointSize,i
 	int ymin = point.y - pointSize/2 < 0 ? 0 : point.y - pointSize/2;
 	int ymax = point.y + pointSize/2 >= height ? height-1 : point.y + pointSize/2;
 	int* p = imageBuffer + ymin*width + xmin;
-	for (int i=ymin;i<ymax;i++) {
-		for (int j=xmin;j<xmax;j++) {
+	for (int i=ymin;i<=ymax;i++) {
+		for (int j=xmin;j<=xmax;j++) {
 			*p++ = color;
 		}
-		p += width - xmax + xmin;
+		p += width - 1 - xmax + xmin;
 	}
 }
 
