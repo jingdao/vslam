@@ -3,11 +3,19 @@
 #include <string.h>
 #include <float.h>
 #include "lapack.h"
+#define POINT_SIZE 5
 
 typedef struct {
 	int width,height;
 	unsigned char* data;
 } Bitmap;
+
+typedef struct {
+	int size;
+	int dimension;
+	float* coord;
+	void* data;
+} Descriptor;
 
 void eigenvalue(int N,double* A,double* lambda_real,double* lambda_imag,double* v) {
 	int info,ldvl=1,ldvr=N,lwork=15*N;	
@@ -124,12 +132,78 @@ void rgb2gray(unsigned char* src,unsigned char* dst,int width,int height) {
 	}
 }
 
+void gray2rgb(unsigned char* src,unsigned char* dst,int width,int height) {
+	for (int i=0;i<height;i++) {
+		for (int j=0;j<width;j++) {
+			*dst++ = *src;
+			*dst++ = *src;
+			*dst++ = *src;
+			src++;
+		}
+	}
+}
+
+void drawKeyPoint(unsigned char* dst,Descriptor* desc,int width,int height,unsigned char r,unsigned char g,unsigned char b) {
+	for (int k=0;k<desc->size;k++) {
+		int x = (int) desc->coord[k*2];
+		int y = (int) desc->coord[k*2+1];
+		int top = y - POINT_SIZE < 0 ? 0 : y - POINT_SIZE;
+		int bottom = y + POINT_SIZE > height ? height : y + POINT_SIZE;
+		int left = x - POINT_SIZE < 0 ? 0 : x - POINT_SIZE;
+		int right = x + POINT_SIZE > width ? width : x + POINT_SIZE;
+		//TOP
+		int i=left;
+		unsigned char* c = dst + (top*width+left)*3;
+		while (i++ < right) {
+			*c++ = r;
+			*c++ = g;
+			*c++ = b;
+		}	
+		//BOTTOM
+		i=left;
+		c = dst + (bottom*width+left)*3;
+		while (i++ < right) {
+			*c++ = r;
+			*c++ = g;
+			*c++ = b;
+		}	
+		//LEFT
+		i=top;
+		c = dst + (top*width+left)*3;
+		while (i++ < bottom) {
+			c[0] = r;
+			c[1] = g;
+			c[2] = b;
+			c += width * 3;
+		}	
+		//RIGHT
+		i=top;
+		c = dst + (top*width+right)*3;
+		while (i++ < bottom) {
+			c[0] = r;
+			c[1] = g;
+			c[2] = b;
+			c += width * 3;
+		}
+	}
+}
+
 void writePGM(char* filename,unsigned char* imageBuffer,int width,int height) {
 	FILE* f = fopen(filename,"w");
 	if (!f)
 		return;
 	fprintf(f,"P5\n%d %d\n255\n",width,height);
 	fwrite(imageBuffer,1,width*height,f);
+	printf("Saved to %s\n",filename);
+	fclose(f);
+}
+
+void writePPM(char* filename,unsigned char* imageBuffer,int width,int height) {
+	FILE* f = fopen(filename,"w");
+	if (!f)
+		return;
+	fprintf(f,"P6\n%d %d\n255\n",width,height);
+	fwrite(imageBuffer,1,width*height*3,f);
 	printf("Saved to %s\n",filename);
 	fclose(f);
 }
@@ -152,18 +226,61 @@ Bitmap* readPPM(char* filename) {
 	}
 }
 
+Descriptor* readKeyFile(char* filename) {
+	FILE* f = fopen(filename,"r");
+	if (!f)
+		return NULL;
+	Descriptor* desc = malloc(sizeof(Descriptor));
+	if (fscanf(f,"%d %d",&desc->size,&desc->dimension)==2) {
+		desc->data = malloc(desc->size * desc->dimension);
+		desc->coord = malloc(desc->size * 2 * sizeof(float));
+		unsigned char* c = desc->data;
+		float* d = desc->coord;
+		float x,y,scale,orientation;
+		for (int i=0;i<desc->size;i++) {
+			fscanf(f,"%f %f %f %f",&y,&x,&scale,&orientation);
+			*d++ = x;
+			*d++ = y;
+			for (int j=0;j<desc->dimension;j++) {
+				fscanf(f,"%hhu",c++);
+			}
+		}
+		return desc;
+	} else {
+		free(desc);
+		return NULL;
+	}
+}
+
+void displayHelp() {
+	printf("./improc a.ppm b.ppm a.key b.key out.pgm\n");
+}
+
 int main(int argc,char* argv[]) {
-	Bitmap* b = readPPM(argv[1]);
-	if (b) {
-		unsigned char* pgm = malloc(b->width*b->height);
-		unsigned char* pgm2 = malloc(b->width*b->height);
-//		rgb2gray(b->data,pgm,b->width,b->height);
-//		histeq(pgm,pgm2,b->width,b->height);
-		pca_transform(b->data,pgm2,b->width,b->height);
-		writePGM(argv[2],pgm2,b->width,b->height);
-		free(pgm);
-		free(pgm2);
-		free(b->data);
-		free(b);
-	}	
+	if (argc < 6) {
+		displayHelp();
+		return 1;
+	}
+	Bitmap* b1 = readPPM(argv[1]);
+	Bitmap* b2 = readPPM(argv[2]);
+	Descriptor* d1 = readKeyFile(argv[3]);
+	Descriptor* d2 = readKeyFile(argv[4]);
+	if (!(b1 && b2 && d1 && d2)) {
+		displayHelp();
+		return 1;
+	}
+	unsigned char* pgm1 = malloc(b1->width*b1->height);
+	unsigned char* pgm2 = malloc(b1->width*b1->height);
+	unsigned char* ppm1 = malloc(b1->width*b1->height*3);
+	unsigned char* ppm2 = malloc(b1->width*b1->height*3);
+	rgb2gray(b1->data,pgm1,b1->width,b1->height);
+	rgb2gray(b2->data,pgm2,b2->width,b2->height);
+	gray2rgb(pgm1,ppm1,b1->width,b1->height);
+	gray2rgb(pgm2,ppm2,b2->width,b2->height);
+	drawKeyPoint(ppm1,d1,b1->width,b1->height,255,0,0);
+	drawKeyPoint(ppm2,d2,b2->width,b2->height,255,0,0);
+	unsigned char* combined = malloc(b1->width*b1->height*6);
+	memcpy(combined,ppm1,b1->width*b1->height*3);
+	memcpy(combined+b1->width*b1->height*3,ppm2,b2->width*b2->height*3);
+	writePPM(argv[5],combined,b1->width,b1->height*2);
 }

@@ -10,7 +10,7 @@ test_g2o: test_g2o.cpp
 	$(CXX) -std=c++11 -ggdb3 -I$(G2O_DIR) -I/usr/local/include/eigen3 -L$(G2O_DIR)/lib -Wl,-R$(G2O_DIR)/lib -o $@ $< -lg2o_core -lg2o_solver_dense -lg2o_stuff
 
 improc: improc.c
-	gcc -std=c99 -ggdb3 -o $@ $< -llapack
+	gcc -Wall -std=c99 -ggdb3 -o $@ $< -llapack
 
 .depend:
 	$(CXX) $(CXXFLAGS) $(INC) -MM *.cpp > .depend
