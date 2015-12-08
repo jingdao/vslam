@@ -4,6 +4,7 @@
 #include <float.h>
 #include "lapack.h"
 #define POINT_SIZE 5
+#define MATCH_THRESHOLD 0.3
 
 typedef struct {
 	int width,height;
@@ -16,6 +17,8 @@ typedef struct {
 	float* coord;
 	void* data;
 } Descriptor;
+
+FILE* matchFile;
 
 void eigenvalue(int N,double* A,double* lambda_real,double* lambda_imag,double* v) {
 	int info,ldvl=1,ldvr=N,lwork=15*N;	
@@ -188,6 +191,52 @@ void drawKeyPoint(unsigned char* dst,Descriptor* desc,int width,int height,unsig
 	}
 }
 
+double desc_dist(unsigned char* d1,unsigned char* d2,int dimension) {
+	double res = 0;
+	for (int i=0;i<dimension;i++) {
+		res += (*d1 - *d2) * (*d1 - *d2);
+		d1++;
+		d2++;
+	}
+	return res;
+}
+
+void matchDescriptors(Descriptor* d1,Descriptor *d2,int id1,int id2) {
+	for (int i=0;i<d1->size;i++) {
+		unsigned char* p1 = (unsigned char*)d1->data + d1->dimension * i;
+		unsigned char* p2 = (unsigned char*)d2->data;
+		double s1 = desc_dist(p1,p2,d1->dimension);
+		p2 += d1->dimension;
+		double s2 = desc_dist(p1,p2,d1->dimension);
+		int i1 = 0;
+		if (s2 < s1) {
+			double tmp = s1;
+			s1 = s2;
+			s2 = tmp;
+			i1 = 1;
+		}
+		p2 += d1->dimension;
+		for (int j=2;j<d2->size;j++) {
+			double score = desc_dist(p1,p2,d1->dimension);
+			if (score < s1) {
+				s2 = s1;
+				i1 = j;
+				s1 = score;
+			} else if (score < s2) {
+				s2 = score;
+			}
+			p2 += d1->dimension;
+		}
+		if (s1 < MATCH_THRESHOLD * MATCH_THRESHOLD * s2) {
+			float x1 = d1->coord[i*2];
+			float y1 = d1->coord[i*2+1];
+			float x2 = d2->coord[i1*2];
+			float y2 = d2->coord[i1*2+1];
+			fprintf(matchFile,"%d %d %d %d %f %f %f %f\n",id1,id2,i,i1,x1,y1,x2,y2);
+		}
+	}
+}
+
 void writePGM(char* filename,unsigned char* imageBuffer,int width,int height) {
 	FILE* f = fopen(filename,"w");
 	if (!f)
@@ -253,34 +302,22 @@ Descriptor* readKeyFile(char* filename) {
 }
 
 void displayHelp() {
-	printf("./improc a.ppm b.ppm a.key b.key out.pgm\n");
+	printf("./improc *.key\n");
 }
 
 int main(int argc,char* argv[]) {
-	if (argc < 6) {
+	if (argc < 2) {
 		displayHelp();
 		return 1;
 	}
-	Bitmap* b1 = readPPM(argv[1]);
-	Bitmap* b2 = readPPM(argv[2]);
-	Descriptor* d1 = readKeyFile(argv[3]);
-	Descriptor* d2 = readKeyFile(argv[4]);
-	if (!(b1 && b2 && d1 && d2)) {
-		displayHelp();
-		return 1;
+	Descriptor** desc = malloc((argc-1) * sizeof(Descriptor*));
+	matchFile = fopen("key.match","w");
+	for (int i=1;i<argc;i++)
+		desc[i-1] = readKeyFile(argv[i]);
+	for (int i=0;i<argc-1;i++) {
+		for (int j=i+1;j<argc-1;j++) {
+			matchDescriptors(desc[i],desc[j],i,j);
+		}
 	}
-	unsigned char* pgm1 = malloc(b1->width*b1->height);
-	unsigned char* pgm2 = malloc(b1->width*b1->height);
-	unsigned char* ppm1 = malloc(b1->width*b1->height*3);
-	unsigned char* ppm2 = malloc(b1->width*b1->height*3);
-	rgb2gray(b1->data,pgm1,b1->width,b1->height);
-	rgb2gray(b2->data,pgm2,b2->width,b2->height);
-	gray2rgb(pgm1,ppm1,b1->width,b1->height);
-	gray2rgb(pgm2,ppm2,b2->width,b2->height);
-	drawKeyPoint(ppm1,d1,b1->width,b1->height,255,0,0);
-	drawKeyPoint(ppm2,d2,b2->width,b2->height,255,0,0);
-	unsigned char* combined = malloc(b1->width*b1->height*6);
-	memcpy(combined,ppm1,b1->width*b1->height*3);
-	memcpy(combined+b1->width*b1->height*3,ppm2,b2->width*b2->height*3);
-	writePPM(argv[5],combined,b1->width,b1->height*2);
+	fclose(matchFile);
 }
