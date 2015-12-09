@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <float.h>
+#include <stdbool.h>
 #include "lapack.h"
 #define POINT_SIZE 5
 #define MATCH_THRESHOLD 0.3
@@ -19,6 +20,7 @@ typedef struct {
 } Descriptor;
 
 FILE* matchFile;
+char* matchFileName = "key.match";
 
 void eigenvalue(int N,double* A,double* lambda_real,double* lambda_imag,double* v) {
 	int info,ldvl=1,ldvr=N,lwork=15*N;	
@@ -201,40 +203,74 @@ double desc_dist(unsigned char* d1,unsigned char* d2,int dimension) {
 	return res;
 }
 
-void matchDescriptors(Descriptor* d1,Descriptor *d2,int id1,int id2) {
-	for (int i=0;i<d1->size;i++) {
-		unsigned char* p1 = (unsigned char*)d1->data + d1->dimension * i;
-		unsigned char* p2 = (unsigned char*)d2->data;
-		double s1 = desc_dist(p1,p2,d1->dimension);
-		p2 += d1->dimension;
-		double s2 = desc_dist(p1,p2,d1->dimension);
-		int i1 = 0;
-		if (s2 < s1) {
-			double tmp = s1;
-			s1 = s2;
-			s2 = tmp;
-			i1 = 1;
-		}
-		p2 += d1->dimension;
-		for (int j=2;j<d2->size;j++) {
-			double score = desc_dist(p1,p2,d1->dimension);
-			if (score < s1) {
-				s2 = s1;
-				i1 = j;
-				s1 = score;
-			} else if (score < s2) {
-				s2 = score;
+void matchDescriptors(Descriptor** desc,int numDescriptors) {
+	int* matches = malloc(numDescriptors * sizeof(int));
+	bool** visited = malloc(numDescriptors * sizeof(bool*));
+	int count = 0;
+	for (int m=0;m<numDescriptors;m++) {
+		Descriptor* d = desc[m];
+		visited[m] = calloc(d->size,sizeof(bool));
+	}
+	for (int m=0;m<numDescriptors;m++) {
+		Descriptor* d1 = desc[m];
+		for (int i=0;i<d1->size;i++) {
+			if (visited[m][i])
+				continue;
+			memset(matches,0,numDescriptors * sizeof(int));
+			bool foundMatch = false;
+			for (int n=m+1;n<numDescriptors;n++) {
+				Descriptor* d2 = desc[n];
+				unsigned char* p1 = (unsigned char*)d1->data + d1->dimension * i;
+				unsigned char* p2 = (unsigned char*)d2->data;
+				double s1 = desc_dist(p1,p2,d1->dimension);
+				p2 += d1->dimension;
+				double s2 = desc_dist(p1,p2,d1->dimension);
+				int i1 = 0;
+				if (s2 < s1) {
+					double tmp = s1;
+					s1 = s2;
+					s2 = tmp;
+					i1 = 1;
+				}
+				p2 += d1->dimension;
+				for (int j=2;j<d2->size;j++,p2+=d1->dimension) {
+					if (visited[n][j])
+						continue;
+					double score = desc_dist(p1,p2,d1->dimension);
+					if (score < s1) {
+						s2 = s1;
+						i1 = j;
+						s1 = score;
+					} else if (score < s2) {
+						s2 = score;
+					}
+				}
+				if (s1 < MATCH_THRESHOLD * MATCH_THRESHOLD * s2) {
+					visited[m][i] = true;
+					visited[n][i1] = true;
+					foundMatch = true;
+					matches[n] = i1 + 1;
+				}
 			}
-			p2 += d1->dimension;
-		}
-		if (s1 < MATCH_THRESHOLD * MATCH_THRESHOLD * s2) {
-			float x1 = d1->coord[i*2];
-			float y1 = d1->coord[i*2+1];
-			float x2 = d2->coord[i1*2];
-			float y2 = d2->coord[i1*2+1];
-			fprintf(matchFile,"%d %d %d %d %f %f %f %f\n",id1,id2,i,i1,x1,y1,x2,y2);
+			if (foundMatch) {
+				count++;
+				fprintf(matchFile,"%d %f %f",m,d1->coord[i*2],d1->coord[i*2+1]);
+				for (int n=m+1;n<numDescriptors;n++) {
+					if (matches[n]) {
+						Descriptor* d2 = desc[n];
+						int i1 = matches[n] - 1;
+						fprintf(matchFile," %d %f %f",n,d2->coord[i1*2],d2->coord[i1*2+1]);
+					}
+				}
+				fprintf(matchFile,"\n");
+			}
 		}
 	}
+	printf("Wrote %d matches to %s\n",count,matchFileName);
+	for (int m=0;m<numDescriptors;m++)
+		free(visited[m]);
+	free(visited);
+	free(matches);
 }
 
 void writePGM(char* filename,unsigned char* imageBuffer,int width,int height) {
@@ -311,13 +347,9 @@ int main(int argc,char* argv[]) {
 		return 1;
 	}
 	Descriptor** desc = malloc((argc-1) * sizeof(Descriptor*));
-	matchFile = fopen("key.match","w");
+	matchFile = fopen(matchFileName,"w");
 	for (int i=1;i<argc;i++)
 		desc[i-1] = readKeyFile(argv[i]);
-	for (int i=0;i<argc-1;i++) {
-		for (int j=i+1;j<argc-1;j++) {
-			matchDescriptors(desc[i],desc[j],i,j);
-		}
-	}
+	matchDescriptors(desc,argc-1);
 	fclose(matchFile);
 }
