@@ -20,7 +20,7 @@ typedef struct {
 } Descriptor;
 
 FILE* matchFile;
-char* matchFileName = "key.match";
+char* matchFileName;
 
 void eigenvalue(int N,double* A,double* lambda_real,double* lambda_imag,double* v) {
 	int info,ldvl=1,ldvr=N,lwork=15*N;	
@@ -338,18 +338,24 @@ Descriptor* readKeyFile(char* filename) {
 }
 
 void displayHelp() {
-	printf("./improc *.key\n");
+	printf("./improc matchFile *.key\n");
 }
 
 int main(int argc,char* argv[]) {
-	if (argc < 2) {
+	if (argc < 3) {
 		displayHelp();
 		return 1;
 	}
-	Descriptor** desc = malloc((argc-1) * sizeof(Descriptor*));
-	matchFile = fopen(matchFileName,"w");
-	for (int i=1;i<argc;i++)
-		desc[i-1] = readKeyFile(argv[i]);
-	matchDescriptors(desc,argc-1);
+	Descriptor** desc = malloc((argc-2) * sizeof(Descriptor*));
+	matchFile = fopen(argv[1],"w");
+	if (!matchFile) {
+		printf("Cannot open %s\n",argv[1]);
+		return 1;
+	}
+	matchFileName = argv[1];
+	for (int i=2;i<argc;i++)
+		desc[i-2] = readKeyFile(argv[i]);
+	matchDescriptors(desc,argc-2);
 	fclose(matchFile);
+	return 0;
 }

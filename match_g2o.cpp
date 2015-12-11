@@ -97,7 +97,7 @@ int main(int argc,char* argv[]) {
 	std::vector<Eigen::Vector3d> translations;
 	while (fgets(buffer,1024,pose_stamped)) {
 		double t,x,y,z,qx,qy,qz,qw;
-		if (sscanf(buffer,"%lf %lf %lf %lf %lf %lf %lf %lf",&t,&x,&y,&z,&qx,&qy,&qz,&qw)==8) {
+		if (sscanf(buffer,"%lf %lf %lf %lf %lf %lf %lf %lf",&t,&x,&y,&z,&qw,&qx,&qy,&qz)==8) {
 			double r[9];
 			quaternionToRotation(qx,qy,qz,qw,r);
 			Mat3 Rwl;
