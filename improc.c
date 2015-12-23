@@ -6,6 +6,7 @@
 #include "lapack.h"
 #define POINT_SIZE 5
 #define MATCH_THRESHOLD 0.3
+#define SAVE_KEYPOINTS 1
 
 typedef struct {
 	int width,height;
@@ -21,6 +22,29 @@ typedef struct {
 
 FILE* matchFile;
 char* matchFileName;
+
+void colormap (float f,unsigned char *r,unsigned char *g,unsigned char *b) {
+	*r=0;
+	*g=0;
+	*b=0;
+	if (f<=0) {
+		*b = 128;
+	} else if (f <= 0.25) {
+		*g = (unsigned char) f / 0.25 * 255;
+		*b = (unsigned char) 128 * (1 - f / 0.25);
+	} else if (f <= 0.5) {
+		*g = 255;
+		*r = (unsigned char) (f - 0.25) / 0.25 * 255;
+	} else if (f <= 0.75) {
+		*r = 255;
+		*g = (unsigned char) 255 + (0.5 - f) / 0.25 * 127;
+	} else if (f <= 1) {
+		*r = 255;
+		*g = (unsigned char) 128 * (1 - f) / 0.25;
+	} else {
+		*r = 255;
+	}
+}
 
 void eigenvalue(int N,double* A,double* lambda_real,double* lambda_imag,double* v) {
 	int info,ldvl=1,ldvr=N,lwork=15*N;	
@@ -113,6 +137,102 @@ void pca_transform(unsigned char *src, unsigned char* dst,int width,int height) 
 	free(T);
 }
 
+void descriptor_transform(Descriptor** desc, int numDescriptors,int numKeypoints,unsigned char* pixels) {
+	int dimension = desc[0]->dimension;
+	double* C = calloc(dimension * dimension , sizeof(double));
+	double* mean = malloc(dimension * sizeof(double));
+	double* lambda_real = malloc(dimension * sizeof(double));
+	double* lambda_imag = malloc(dimension * sizeof(double));
+	double* V = malloc(dimension * dimension * sizeof(double));
+	float* component = calloc(numKeypoints * 3 ,sizeof(float));
+	for (int i=0;i<dimension;i++)
+		mean[i] = 0.0f;
+	for (int m=0;m<numDescriptors;m++) {
+		unsigned char* c = desc[m]->data;
+		for (int n=0;n<desc[m]->size;n++) {
+			for (int i=0;i<dimension;i++) {
+				mean[i] += *c++;
+			}
+		}
+	}
+	for (int i=0;i<dimension;i++)
+		mean[i] /= numKeypoints;
+	for (int m=0;m<numDescriptors;m++) {
+		unsigned char* val = desc[m]->data;
+		for (int n=0;n<desc[m]->size;n++) {
+			unsigned char* val_n = val + n * dimension;
+			for (int i=0;i<dimension;i++) {
+				for (int j=i;j<dimension;j++) {
+					C[i*dimension+j] += ((double)val_n[i] - mean[i]) * ((double)val_n[j] - mean[j]);
+				}
+			}
+		}
+	}
+	for (int i=0;i<dimension;i++) {
+		for (int j=i;j<dimension;j++) {
+			C[i*dimension+j] /= numKeypoints * numKeypoints;
+			C[j*dimension+i] = C[i*dimension+j];
+		}
+	}
+	eigenvalue(dimension,C,lambda_real,lambda_imag,V);
+	int tmp,l1=0,l2=1,l3=2;
+	if (lambda_real[l2] > lambda_real[l1]) {
+		tmp = l1; l1 = l2; l2 = tmp;
+	}
+	if (lambda_real[l3] > lambda_real[l1]) {
+		tmp = l1; l1 = l3; l3 = tmp;
+	}
+	if (lambda_real[l3] > lambda_real[l2]) {
+		tmp = l2; l2 = l3; l3 = tmp;
+	}
+	for (int i=3;i<dimension;i++) {
+		if (lambda_real[i] > lambda_real[l1]) {
+			l3 = l2; l2 = l1; l1 = i;			
+		} else if (lambda_real[i] > lambda_real[l2]) {
+			l3 = l2; l2 = i;
+		} else if (lambda_real[i] > lambda_real[l3]) {
+			l3 = i;
+		}
+	}
+	for (int i=0;i<numKeypoints*3;i++)
+		component[i] = 0.0f;
+	float* rgb = component;
+	for (int m=0;m<numDescriptors;m++) {
+		unsigned char* val = desc[m]->data;
+		for (int n=0;n<desc[m]->size;n++) {
+			unsigned char* val_n = val + n * dimension;
+			for (int i=0;i<dimension;i++) {
+				rgb[0] += V[l1*dimension+i] * ((double)val_n[i] - mean[i]);
+				rgb[1] += V[l2*dimension+i] * ((double)val_n[i] - mean[i]);
+				rgb[2] += V[l3*dimension+i] * ((double)val_n[i] - mean[i]);
+			}
+			rgb += 3;
+		}
+	}
+	float rmin=component[0],rmax=component[0];
+	float gmin=component[1],gmax=component[1];
+	float bmin=component[2],bmax=component[2];
+	for (int i=1;i<numKeypoints;i++) {
+		if (component[i*3] < rmin) rmin = component[i*3];
+		else if (component[i*3] > rmax) rmax = component[i*3];
+		if (component[i*3 + 1] < gmin) gmin = component[i*3 + 1];
+		else if (component[i*3 + 1] > gmax) gmax = component[i*3 + 1];
+		if (component[i*3 + 2] < bmin) bmin = component[i*3 + 2];
+		else if (component[i*3 + 2] > bmax) bmax = component[i*3 + 2];
+	}
+	for (int i=0;i<numKeypoints;i++) {
+		pixels[i*3] = (component[i*3] - rmin) / (rmax - rmin) * 255;
+		pixels[i*3 + 1] = (component[i*3 + 1] - gmin) / (gmax - gmin) * 255;
+		pixels[i*3 + 2] = (component[i*3 + 2] - bmin) / (bmax - bmin) * 255;
+	}
+	free(C);
+	free(mean);
+	free(lambda_real);
+	free(lambda_imag);
+	free(V);
+	free(component);
+}
+
 void histeq(unsigned char* src,unsigned char* dst,int width,int height) {
 	int count[256];
 	memset(count,0,256*sizeof(int));
@@ -148,48 +268,46 @@ void gray2rgb(unsigned char* src,unsigned char* dst,int width,int height) {
 	}
 }
 
-void drawKeyPoint(unsigned char* dst,Descriptor* desc,int width,int height,unsigned char r,unsigned char g,unsigned char b) {
-	for (int k=0;k<desc->size;k++) {
-		int x = (int) desc->coord[k*2];
-		int y = (int) desc->coord[k*2+1];
-		int top = y - POINT_SIZE < 0 ? 0 : y - POINT_SIZE;
-		int bottom = y + POINT_SIZE > height ? height : y + POINT_SIZE;
-		int left = x - POINT_SIZE < 0 ? 0 : x - POINT_SIZE;
-		int right = x + POINT_SIZE > width ? width : x + POINT_SIZE;
-		//TOP
-		int i=left;
-		unsigned char* c = dst + (top*width+left)*3;
-		while (i++ < right) {
-			*c++ = r;
-			*c++ = g;
-			*c++ = b;
-		}	
-		//BOTTOM
-		i=left;
-		c = dst + (bottom*width+left)*3;
-		while (i++ < right) {
-			*c++ = r;
-			*c++ = g;
-			*c++ = b;
-		}	
-		//LEFT
-		i=top;
-		c = dst + (top*width+left)*3;
-		while (i++ < bottom) {
-			c[0] = r;
-			c[1] = g;
-			c[2] = b;
-			c += width * 3;
-		}	
-		//RIGHT
-		i=top;
-		c = dst + (top*width+right)*3;
-		while (i++ < bottom) {
-			c[0] = r;
-			c[1] = g;
-			c[2] = b;
-			c += width * 3;
-		}
+void drawKeyPoint(unsigned char* dst,Descriptor* desc,int k,int width,int height,unsigned char r,unsigned char g,unsigned char b) {
+	int x = (int) desc->coord[k*2];
+	int y = (int) desc->coord[k*2+1];
+	int top = y - POINT_SIZE < 0 ? 0 : y - POINT_SIZE;
+	int bottom = y + POINT_SIZE > height ? height : y + POINT_SIZE;
+	int left = x - POINT_SIZE < 0 ? 0 : x - POINT_SIZE;
+	int right = x + POINT_SIZE > width ? width : x + POINT_SIZE;
+	//TOP
+	int i=left;
+	unsigned char* c = dst + (top*width+left)*3;
+	while (i++ < right) {
+		*c++ = r;
+		*c++ = g;
+		*c++ = b;
+	}	
+	//BOTTOM
+	i=left;
+	c = dst + (bottom*width+left)*3;
+	while (i++ < right) {
+		*c++ = r;
+		*c++ = g;
+		*c++ = b;
+	}	
+	//LEFT
+	i=top;
+	c = dst + (top*width+left)*3;
+	while (i++ < bottom) {
+		c[0] = r;
+		c[1] = g;
+		c[2] = b;
+		c += width * 3;
+	}	
+	//RIGHT
+	i=top;
+	c = dst + (top*width+right)*3;
+	while (i++ < bottom) {
+		c[0] = r;
+		c[1] = g;
+		c[2] = b;
+		c += width * 3;
 	}
 }
 
@@ -304,9 +422,11 @@ Bitmap* readPPM(char* filename) {
 	if (sscanf(buffer,"%d %d",&b->width,&b->height)==2) {
 		b->data = malloc(b->width * b->height * 3);
 		fread(b->data,1,b->width*b->height*3,f);
+		fclose(f);
 		return b;
 	} else {
 		free(b);
+		fclose(f);
 		return NULL;
 	}
 }
@@ -330,9 +450,12 @@ Descriptor* readKeyFile(char* filename) {
 				fscanf(f,"%hhu",c++);
 			}
 		}
+		fclose(f);
 		return desc;
 	} else {
+		printf("Error reading %s\n",filename);
 		free(desc);
+		fclose(f);
 		return NULL;
 	}
 }
@@ -356,6 +479,47 @@ int main(int argc,char* argv[]) {
 	for (int i=2;i<argc;i++)
 		desc[i-2] = readKeyFile(argv[i]);
 	matchDescriptors(desc,argc-2);
+#if SAVE_KEYPOINTS
+	int numKeypoints = 0;
+	for (int i=0;i<argc-2;i++)
+		numKeypoints += desc[i]->size;
+	unsigned char* pixels = malloc(numKeypoints * 3);
+	descriptor_transform(desc,argc-2,numKeypoints,pixels);
+	char buffer[256];
+	unsigned char* rgb = pixels;
+	for (int i=2;i<argc;i++) {
+		int l = strlen(argv[i]);
+		int j;
+		for (j=l-1;j>=0;j--)
+			if (argv[i][j] == '.')
+				break;
+		memcpy(buffer,argv[i],j+1);
+		sprintf(buffer+j+1,"ppm");
+		Bitmap* bmp = readPPM(buffer);
+		if (bmp) {
+			sprintf(buffer+j,"-match.ppm");
+			unsigned char* gray = malloc(bmp->width * bmp->height);
+			rgb2gray(bmp->data,gray,bmp->width,bmp->height);
+			gray2rgb(gray,bmp->data,bmp->width,bmp->height);
+			sprintf(buffer+j,"-desc.ppm");
+			for (int k=0;k<desc[i-2]->size;k++) {
+				drawKeyPoint(bmp->data,desc[i-2],k,bmp->width,bmp->height,rgb[0],rgb[1],rgb[2]);
+				rgb += 3;
+			}
+			writePPM(buffer,bmp->data,bmp->width,bmp->height);
+			free(gray);
+			free(bmp->data);
+			free(bmp);
+		}
+	}
+	free(pixels);
+#endif
 	fclose(matchFile);
+	for (int i=0;i<argc-2;i++) {
+		free(desc[i]->data);
+		free(desc[i]->coord);
+		free(desc[i]);
+	}
+	free(desc);
 	return 0;
 }

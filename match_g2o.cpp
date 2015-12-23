@@ -86,7 +86,7 @@ int main(int argc,char* argv[]) {
 	}
 	srand(time(NULL));
 	Rcl << 1,0,0,0,0,1,0,-1,0;
-	Tcl << 0,0,0;
+	Tcl << 0,0.25,0.18;
 
 	//read pose file
 	FILE* pose_stamped = fopen(argv[1],"r");

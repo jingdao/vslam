@@ -2,7 +2,7 @@ CXX       = g++
 
 G2O_DIR=/home/jd/Downloads/g2o-master
 
-all: match_g2o
+all: pixel_tracing test_g2o improc match_g2o viz_cam
 
 pixel_tracing: pixel_tracing.cpp pose_est.cpp geometry.h
 	$(CXX) -ggdb3 -o $@ pixel_tracing.cpp pose_est.cpp -lSDL
