@@ -20,6 +20,19 @@ typedef struct {
 	void* data;
 } Descriptor;
 
+typedef struct {
+	int numImages;
+	int* image_index;
+	int* desc_index;
+	float* xi;
+	float* yi;
+} Match;
+
+typedef struct {
+	int numMatches;
+	Match* matches;
+} MatchArray;
+
 FILE* matchFile;
 char* matchFileName;
 
@@ -321,10 +334,10 @@ double desc_dist(unsigned char* d1,unsigned char* d2,int dimension) {
 	return res;
 }
 
-void matchDescriptors(Descriptor** desc,int numDescriptors) {
+MatchArray matchDescriptors(Descriptor** desc,int numDescriptors) {
 	int* matches = malloc(numDescriptors * sizeof(int));
 	bool** visited = malloc(numDescriptors * sizeof(bool*));
-	int count = 0;
+	MatchArray matcharray = {0,NULL};
 	for (int m=0;m<numDescriptors;m++) {
 		Descriptor* d = desc[m];
 		visited[m] = calloc(d->size,sizeof(bool));
@@ -371,24 +384,53 @@ void matchDescriptors(Descriptor** desc,int numDescriptors) {
 				}
 			}
 			if (foundMatch) {
-				count++;
-				fprintf(matchFile,"%d %f %f",m,d1->coord[i*2],d1->coord[i*2+1]);
+				matcharray.numMatches++;
+				matcharray.matches = realloc(matcharray.matches,matcharray.numMatches * sizeof(Match));
+				if (!matcharray.matches) {
+					matcharray.numMatches = 0;
+					return matcharray;
+				}
+				Match* mt = matcharray.matches + matcharray.numMatches - 1;
+				mt->numImages = 1;
+				mt->image_index = malloc(sizeof(int));
+				mt->desc_index = malloc(sizeof(int));
+				mt->xi = malloc(sizeof(float));
+				mt->yi = malloc(sizeof(float));
+				if (!mt->image_index || !mt->desc_index || !mt->xi || !mt->yi) {
+					mt->numImages = 0;
+					continue;
+				}
+				mt->image_index[0] = m;
+				mt->desc_index[0] = i;
+				mt->xi[0] = d1->coord[i*2];
+				mt->yi[0] = d1->coord[i*2+1];
 				for (int n=m+1;n<numDescriptors;n++) {
 					if (matches[n]) {
 						Descriptor* d2 = desc[n];
 						int i1 = matches[n] - 1;
-						fprintf(matchFile," %d %f %f",n,d2->coord[i1*2],d2->coord[i1*2+1]);
+						mt->numImages++;
+						mt->image_index = realloc(mt->image_index,mt->numImages * sizeof(int));
+						mt->desc_index = realloc(mt->desc_index,mt->numImages * sizeof(int));
+						mt->xi = realloc(mt->xi,mt->numImages * sizeof(float));
+						mt->yi = realloc(mt->yi,mt->numImages * sizeof(float));
+						if (!mt->image_index || !mt->desc_index || !mt->xi || !mt->yi) {
+							mt->numImages = 0;
+							break;
+						}
+						mt->image_index[mt->numImages - 1] = n;
+						mt->desc_index[mt->numImages - 1] = i1;
+						mt->xi[mt->numImages - 1] = d2->coord[i1*2];
+						mt->yi[mt->numImages - 1] = d2->coord[i1*2+1];
 					}
 				}
-				fprintf(matchFile,"\n");
 			}
 		}
 	}
-	printf("Wrote %d matches to %s\n",count,matchFileName);
 	for (int m=0;m<numDescriptors;m++)
 		free(visited[m]);
 	free(visited);
 	free(matches);
+	return matcharray;
 }
 
 void writePGM(char* filename,unsigned char* imageBuffer,int width,int height) {
@@ -478,7 +520,16 @@ int main(int argc,char* argv[]) {
 	matchFileName = argv[1];
 	for (int i=2;i<argc;i++)
 		desc[i-2] = readKeyFile(argv[i]);
-	matchDescriptors(desc,argc-2);
+	MatchArray matcharray = matchDescriptors(desc,argc-2);
+	for (int i=0;i<matcharray.numMatches;i++) {
+		Match m = matcharray.matches[i];
+		fprintf(matchFile,"%d %f %f",m.image_index[0],m.xi[0],m.yi[0]);
+		for (int j=1;j<m.numImages;j++) {
+			fprintf(matchFile," %d %f %f",m.image_index[j],m.xi[j],m.yi[j]);
+		}
+		fprintf(matchFile,"\n");
+	}
+	printf("Wrote %d matches to %s\n",matcharray.numMatches,matchFileName);
 #if SAVE_KEYPOINTS
 	int numKeypoints = 0;
 	for (int i=0;i<argc-2;i++)
@@ -497,7 +548,7 @@ int main(int argc,char* argv[]) {
 		sprintf(buffer+j+1,"ppm");
 		Bitmap* bmp = readPPM(buffer);
 		if (bmp) {
-			sprintf(buffer+j,"-match.ppm");
+			//draw descriptor at each keypoint
 			unsigned char* gray = malloc(bmp->width * bmp->height);
 			rgb2gray(bmp->data,gray,bmp->width,bmp->height);
 			gray2rgb(gray,bmp->data,bmp->width,bmp->height);
@@ -507,14 +558,43 @@ int main(int argc,char* argv[]) {
 				rgb += 3;
 			}
 			writePPM(buffer,bmp->data,bmp->width,bmp->height);
-			free(gray);
 			free(bmp->data);
 			free(bmp);
+			//draw matched keypoints
+			sprintf(buffer+j,".ppm");
+			bmp = readPPM(buffer);
+			rgb2gray(bmp->data,gray,bmp->width,bmp->height);
+			gray2rgb(gray,bmp->data,bmp->width,bmp->height);
+			sprintf(buffer+j,"-match.ppm");
+			for (int k=0;k<matcharray.numMatches;k++) {
+				Match mt = matcharray.matches[k];
+				for (int l=0;l<mt.numImages;l++) {
+					if (mt.image_index[l] == i-2) {
+						unsigned char r,g,b;
+						colormap(1.0 * k / matcharray.numMatches, &r, &g, &b);
+						drawKeyPoint(bmp->data,desc[i-2],mt.desc_index[l],bmp->width,bmp->height,r,g,b);
+						break;
+					}
+				}
+			}
+			writePPM(buffer,bmp->data,bmp->width,bmp->height);
+			free(bmp->data);
+			free(bmp);
+			free(gray);
 		}
 	}
 	free(pixels);
 #endif
 	fclose(matchFile);
+	for (int i=0;i<matcharray.numMatches;i++) {
+		Match m = matcharray.matches[i];
+		if (m.image_index) free(m.image_index);
+		if (m.desc_index) free(m.desc_index);
+		if (m.xi) free(m.xi);
+		if (m.yi) free(m.yi);
+	}
+	if (matcharray.matches)
+		free(matcharray.matches);
 	for (int i=0;i<argc-2;i++) {
 		free(desc[i]->data);
 		free(desc[i]->coord);
