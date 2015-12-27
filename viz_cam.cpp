@@ -110,7 +110,7 @@ int main(int argc,char* argv[]) {
 	while (fgets(buffer,128,f)) {
 		if (sscanf(buffer,"%f %f %f %f %f %f %f %f\n",&t,T,T+1,T+2,Q,Q+1,Q+2,Q+3) == 8) {
 			CamModel cam;
-			quaternionToRotation(Q[0],Q[1],Q[2],Q[3],R);
+			quaternionToRotation(Q[3],Q[0],Q[1],Q[2],R);
 			cam.center = transformPoint(center,R,T);
 			cam.ul = transformPoint(ul,R,T);
 			cam.ur = transformPoint(ur,R,T);

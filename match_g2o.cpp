@@ -3,6 +3,7 @@
 #include <math.h>
 #include <time.h>
 #include <vector>
+#include <iostream>
 #include "g2o/core/eigen_types.h"
 #include "g2o/core/sparse_optimizer.h"
 #include "g2o/core/block_solver.h"
@@ -21,7 +22,7 @@ double fx = 971.760406;
 double fy = 971.138862;
 double cx = 319.500000;
 double cy = 239.500000;
-int numIterations = 10;
+int numIterations = 50;
 double huber_threshold = -1;
 //double huber_threshold = sqrt(5.991);
 //lidar to camera transformation
@@ -61,10 +62,16 @@ class EdgeProjection : public g2o::BaseUnaryEdge<2, Eigen::Vector2d, VertexMapPo
 		_error(1) = v - measurement()(1);
 	}
 
-//	void linearizeOplus() {
-//		_jacobianOplusXi(0,0) = - measurement()(0);
-//		_jacobianOplusXi(0,1) = -1;
-//	}
+	void linearizeOplus() {
+		const VertexMapPoint* mp = static_cast<const VertexMapPoint*>(vertex(0));
+		Eigen::Vector3d xc = Rcw * mp->estimate() + Tcw;
+		_jacobianOplusXi(0,0) = fx / xc(2) / xc(2) * (Rcw(2,0) * xc(0) - Rcw(0,0) * xc(2));
+		_jacobianOplusXi(0,1) = fx / xc(2) / xc(2) * (Rcw(2,1) * xc(0) - Rcw(0,1) * xc(2));
+		_jacobianOplusXi(0,2) = fx / xc(2) / xc(2) * (Rcw(2,2) * xc(0) - Rcw(0,2) * xc(2));
+		_jacobianOplusXi(1,0) = fy / xc(2) / xc(2) * (Rcw(2,0) * xc(1) - Rcw(1,0) * xc(2));
+		_jacobianOplusXi(1,1) = fy / xc(2) / xc(2) * (Rcw(2,1) * xc(1) - Rcw(1,1) * xc(2));
+		_jacobianOplusXi(1,2) = fy / xc(2) / xc(2) * (Rcw(2,2) * xc(1) - Rcw(1,2) * xc(2));
+	}
 };
 
 void quaternionToRotation(double qx,double qy,double qz,double qw,double* R) {
@@ -114,6 +121,7 @@ int main(int argc,char* argv[]) {
 	struct timespec start,end;
 	clock_gettime(CLOCK_MONOTONIC,&start);
 	int count_points = 0;
+	int cjIterations = 0;
 	double RMSE = 0;
 	FILE* key_match = fopen(argv[2],"r");
 	FILE* map_point = fopen(argv[3],"w");
@@ -152,7 +160,7 @@ int main(int argc,char* argv[]) {
 			EdgeProjection* e = new EdgeProjection();
 			e->setInformation(Eigen::Matrix<double,2,2>::Identity());
 			e->setVertex(0,vt);
-			e->setMeasurement(Eigen::Vector2d(u-cx,v-cy));
+			e->setMeasurement(Eigen::Vector2d(u-cx,cy-v));
 			e->Rcw = rotations[id];
 			e->Tcw = translations[id];
 			if (huber_threshold > 0) {
@@ -166,7 +174,7 @@ int main(int argc,char* argv[]) {
 		//optimize
 		optimizer.initializeOptimization();
 		optimizer.setVerbose(false);
-		optimizer.optimize(numIterations);
+		cjIterations += optimizer.optimize(numIterations);
 
 		//record result
 		double chi2 = optimizer.activeChi2();
@@ -180,7 +188,7 @@ int main(int argc,char* argv[]) {
 			Eigen::Vector3d xc = rotations[id] * vt->estimate() + translations[id];
 			double u = - fx * xc(0) / xc(2);
 			double v = - fy * xc(1) / xc(2);
-			printf("%d %f %f ",id,u+cx,v+cy);
+			printf("%d %f %f ",id,u+cx,cy-v);
 			c += sprintf(c,"%4.2f %4.2f %4.2f\n%4.2f %4.2f %4.2f\n%4.2f %4.2f %4.2f\n",
 						rotations[id](0,0),rotations[id](0,1),rotations[id](0,2),
 						rotations[id](1,0),rotations[id](1,1),rotations[id](1,2),
@@ -197,7 +205,7 @@ int main(int argc,char* argv[]) {
 	clock_gettime(CLOCK_MONOTONIC,&end);
 	double dt = end.tv_sec - start.tv_sec + 0.000000001 * (end.tv_nsec - start.tv_nsec);
 	RMSE = sqrt(RMSE / count_points);
-	printf("Optimized %d map points (%fs, RMSE = %f)\n",count_points, dt, RMSE);
+	printf("Optimized %d map points (%d iter, %fs, RMSE = %f)\n",count_points, cjIterations, dt, RMSE);
 	fclose(key_match);
 	fclose(map_point);
 

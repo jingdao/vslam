@@ -4,7 +4,7 @@ SIFT=/home/jd/Downloads/siftDemoV4/sift
 BAG=$(rospack find lidar_mapping)/bag2img.py
 process_image=false
 
-if [ "$#" -ne 2 ] || ! [ -f $1 ] || ! [ -d $2 ]
+if [ "$#" -ne "2" ] || ! [ -f $1 ] || ! [ -d $2 ]
 then
 	echo "./opt_cam.sh data.bag image_dir/"
 	exit
