@@ -23,6 +23,7 @@ double fy = 971.138862;
 double cx = 319.500000;
 double cy = 239.500000;
 int numIterations = 50;
+int numSeeds = 1000;
 double huber_threshold = -1;
 //double huber_threshold = sqrt(5.991);
 //lidar to camera transformation
@@ -137,11 +138,11 @@ int main(int argc,char* argv[]) {
 		g2o::BlockSolverX *blocksolver = new g2o::BlockSolverX(linearSolver);
 		g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(blocksolver);
 		optimizer.setAlgorithm(solver);
+		optimizer.setVerbose(false);
 
 		//add vertex
 		VertexMapPoint *vt = new VertexMapPoint();
 		vt->setId(0);
-		vt->setEstimate(Eigen::Vector3d(1.0 / RAND_MAX * rand(), 1.0 / RAND_MAX * rand(), 1.0 / RAND_MAX * rand()));
 		optimizer.addVertex(vt);
 
 		//add edges
@@ -172,20 +173,28 @@ int main(int argc,char* argv[]) {
 		}
 
 		//optimize
-		optimizer.initializeOptimization();
-		optimizer.setVerbose(false);
-		cjIterations += optimizer.optimize(numIterations);
+		Eigen::Vector3d bestEstimate;
+		double leastError;
+		for (int i=0;i<numSeeds;i++) {
+			vt->setEstimate(Eigen::Vector3d(1.0 / RAND_MAX * rand(), 1.0 / RAND_MAX * rand(), 1.0 / RAND_MAX * rand()));
+			optimizer.initializeOptimization();
+			cjIterations += optimizer.optimize(numIterations);
+			if (i==0 || optimizer.activeChi2() < leastError) {
+				bestEstimate = vt->estimate();
+				leastError = optimizer.activeChi2();
+			}
+		}
+		
 
 		//record result
-		double chi2 = optimizer.activeChi2();
-		RMSE += chi2 / index.size();
+		RMSE += leastError / index.size();
 #if DEBUG_SINGLE
 		printf("reprojection: ");
 		char* c = buffer;
 		c += sprintf(c,"transformation:\n");
 		for (unsigned int i=0;i<index.size();i++) {
 			id = index[i];
-			Eigen::Vector3d xc = rotations[id] * vt->estimate() + translations[id];
+			Eigen::Vector3d xc = rotations[id] * bestEstimate + translations[id];
 			double u = - fx * xc(0) / xc(2);
 			double v = - fy * xc(1) / xc(2);
 			printf("%d %f %f ",id,u+cx,cy-v);
@@ -196,9 +205,9 @@ int main(int argc,char* argv[]) {
 			c += sprintf(c,"[%4.2f %4.2f %4.2f]\n",translations[id](0),translations[id](1),translations[id](2));
 		}
 		printf("\n%s",buffer);
-		printf("estimate: %f %f %f %lu %f\n",vt->estimate()(0),vt->estimate()(1),vt->estimate()(2),index.size(),optimizer.activeChi2());
+		printf("estimate: %f %f %f %lu %f\n",bestEstimate(0),bestEstimate(1),bestEstimate(2),index.size(),leastError);
 #else
-		fprintf(map_point,"%f %f %f %lu %f\n",vt->estimate()(0),vt->estimate()(1),vt->estimate()(2),index.size(),optimizer.activeChi2());
+		fprintf(map_point,"%f %f %f %lu %f\n",bestEstimate(0),bestEstimate(1),bestEstimate(2),index.size(),leastError);
 #endif
 		count_points++;
 	}

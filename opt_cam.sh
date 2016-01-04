@@ -3,6 +3,7 @@
 SIFT=/home/jd/Downloads/siftDemoV4/sift
 BAG=$(rospack find lidar_mapping)/bag2img.py
 process_image=false
+use_g2o=false
 
 if [ "$#" -ne "2" ] || ! [ -f $1 ] || ! [ -d $2 ]
 then
@@ -36,5 +37,10 @@ then
 	./improc $2/key.match $2/*.key
 fi
 set -x
-./match_g2o $2/pose_stamped.txt $2/key.match $2/map_point.txt
+if $use_g2o
+then
+	./match_g2o $2/pose_stamped.txt $2/key.match $2/map_point.txt
+else
+	./match_solver $2/pose_stamped.txt $2/key.match $2/map_point.txt
+fi
 ./viz_cam $2/pose_stamped.txt $2/map_point.txt
