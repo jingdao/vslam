@@ -42,10 +42,10 @@ int main(int argc,char* argv[]) {
 	FILE* pose_stamped = fopen(argv[1],"r");
 	if (!pose_stamped)
 		return 1;
-	char buffer[1024];
+	char buffer[2048];
 	std::vector<Mat3> rotations;
 	std::vector<Eigen::Vector3d> translations;
-	while (fgets(buffer,1024,pose_stamped)) {
+	while (fgets(buffer,2048,pose_stamped)) {
 		double t,x,y,z,qx,qy,qz,qw;
 		if (sscanf(buffer,"%lf %lf %lf %lf %lf %lf %lf %lf",&t,&x,&y,&z,&qw,&qx,&qy,&qz)==8) {
 			double r[9];
@@ -69,22 +69,21 @@ int main(int argc,char* argv[]) {
 	FILE* map_point = fopen(argv[3],"w");
 	if (!(key_match && map_point))
 		return 1;
-	while (fgets(buffer,1024,key_match)) {
+	while (fgets(buffer,2048,key_match)) {
 #if DEBUG_SINGLE
 		printf("key.match: %s",buffer);
 #endif
 		int id;
 		char* tok = strtok(buffer," ");
-		double u,v;
 		std::vector<double> uc,vc;
 		std::vector<int> index;
 		while (tok) {
 			id = atoi(tok);
 			index.push_back(id);
 			tok = strtok(NULL," \n");
-			u = atof(tok);
+			double u = atof(tok);
 			tok = strtok(NULL," \n");
-			v = atof(tok);
+			double v = atof(tok);
 			tok = strtok(NULL," \n");
 			uc.push_back(u - cx);
 			vc.push_back(cy - v);

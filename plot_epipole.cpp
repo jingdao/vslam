@@ -21,11 +21,20 @@ double centerX=0,centerY=0,centerZ=0;
 double upX=0,upY=0,upZ=1;
 int screenWidth = 1100, screenHeight = 750;
 float cameraSize = 0.1;
+bool* camera_valid;
 std::vector<CamModel> camera_location;
-std::vector<Point> pointcloud;
+std::vector<float> rotations;
+std::vector<float> translations;
+std::vector<Point> lines;
+Point target;
 int mouseIndex = 0;
 int previousX,previousY;
 double scrollSpeed = 1.1;
+double lineLength = 5;
+float fx = 971.760406;
+float fy = 971.138862;
+float cx = 319.500000;
+float cy = 239.500000;
 
 void quaternionToRotation(float qx,float qy,float qz,float qw,float* R) {
 	R[0] = 1 - 2*qy*qy - 2 * qz*qz;
@@ -47,6 +56,15 @@ Point transformPoint(Point p,float* R,float* T) {
 	return res;
 }
 
+Point scalePoint(Point p,float length) {
+	Point q;
+	double magnitude = sqrt(p.x*p.x+p.y*p.y+p.z*p.z);
+	q.x = p.x / magnitude * length;
+	q.y = p.y / magnitude * length;
+	q.z = p.z / magnitude * length;
+	return q;
+}
+
 void drawLine(Point p1,Point p2) {
 	glBegin(GL_LINES);
 	glVertex3d(p1.x,p1.y,p1.z);
@@ -62,25 +80,31 @@ void draw() {
 	glLoadIdentity();
 	gluLookAt(cameraX,cameraY,cameraZ,centerX,centerY,centerZ,upX,upY,upZ);
 
-	glLineWidth(1.0);
+	glLineWidth(2.0);
+	glColor3ub(0,255,0);
 	for (size_t n = 0; n < camera_location.size(); n++){
-		glColor3ub(0,255,0);
-		drawLine(camera_location[n].center,camera_location[n].ul);
-		drawLine(camera_location[n].center,camera_location[n].ur);
-		drawLine(camera_location[n].center,camera_location[n].bl);
-		drawLine(camera_location[n].center,camera_location[n].br);
-		drawLine(camera_location[n].ul,camera_location[n].bl);
-		drawLine(camera_location[n].ur,camera_location[n].br);
-		drawLine(camera_location[n].ul,camera_location[n].ur);
-		drawLine(camera_location[n].bl,camera_location[n].br);
+		if (camera_valid[n]) {
+			drawLine(camera_location[n].center,camera_location[n].ul);
+			drawLine(camera_location[n].center,camera_location[n].ur);
+			drawLine(camera_location[n].center,camera_location[n].bl);
+			drawLine(camera_location[n].center,camera_location[n].br);
+			drawLine(camera_location[n].ul,camera_location[n].bl);
+			drawLine(camera_location[n].ur,camera_location[n].br);
+			drawLine(camera_location[n].ul,camera_location[n].ur);
+			drawLine(camera_location[n].bl,camera_location[n].br);
+		}
 	}
 
-	glPointSize(2.0);
-	glBegin(GL_POINTS);
-	for (size_t n = 0; n < pointcloud.size(); n++){
-		glColor3ub(255,255,255);
-		glVertex3d(pointcloud[n].x,pointcloud[n].y,pointcloud[n].z);
+	glLineWidth(1.0);
+	glColor3ub(255,255,255);
+	for (size_t n = 0; n < lines.size() / 2; n++) {
+		drawLine(lines[2*n],lines[2*n+1]);
 	}
+
+	glPointSize(5.0);
+	glBegin(GL_POINTS);
+	glColor3ub(255,0,0);
+	glVertex3d(target.x,target.y,target.z);
 	glEnd();
 
 	glFlush();
@@ -91,13 +115,13 @@ void draw() {
 }
 
 int main(int argc,char* argv[]) {
-	if (argc < 3) {
-		printf("./viz_cam pose_stamped.txt map_point.txt\n");
+	if (argc < 5) {
+		printf("./plot_epipole pose_stamped.txt key.match map_point.txt point_index\n");
 		return 1;
 	}
 
 	FILE* f = fopen(argv[1],"r");
-	char buffer[128];
+	char buffer[2048];
 	float R[9];
 	float Q[4];
 	float T[3];
@@ -107,7 +131,7 @@ int main(int argc,char* argv[]) {
 	Point ur = {cameraSize,cameraSize,cameraSize};
 	Point bl = {-cameraSize,cameraSize,-cameraSize};
 	Point br = {cameraSize,cameraSize,-cameraSize};
-	while (fgets(buffer,128,f)) {
+	while (fgets(buffer,2048,f)) {
 		if (sscanf(buffer,"%f %f %f %f %f %f %f %f\n",&t,T,T+1,T+2,Q,Q+1,Q+2,Q+3) == 8) {
 			CamModel cam;
 			quaternionToRotation(Q[1],Q[2],Q[3],Q[0],R);
@@ -117,16 +141,53 @@ int main(int argc,char* argv[]) {
 			cam.bl = transformPoint(bl,R,T);
 			cam.br = transformPoint(br,R,T);
 			camera_location.push_back(cam);
+			for (int i=0;i<9;i++)
+				rotations.push_back(R[i]);
+			for (int i=0;i<3;i++)
+				translations.push_back(T[i]);
 		}
 	}
 	fclose(f);
-	f = fopen(argv[2],"r");
-	while (fgets(buffer,128,f)) {
-		Point p;
-		if (sscanf(buffer,"%f %f %f",&p.x,&p.y,&p.z)==3)
-			pointcloud.push_back(p);
+	camera_valid = (bool*) malloc(camera_location.size()*sizeof(bool));
+	FILE* keymatch_file = fopen(argv[2],"r");
+	int point_index = atoi(argv[4]); //1-based
+	for (int i=0;i<point_index;i++)
+		fgets(buffer,2048,keymatch_file);
+	memset(camera_valid,0,camera_location.size()*sizeof(bool));
+	if (fgets(buffer,2048,keymatch_file)) {
+		char* tok = strtok(buffer," ");
+		while (tok) {
+			int id = atoi(tok);
+			camera_valid[id] = true;
+			tok = strtok(NULL," \n");
+			float u = atof(tok);
+			tok = strtok(NULL," \n");
+			float v = atof(tok);
+			tok = strtok(NULL," \n");
+			float* Rwc = &rotations[id*9];
+			float* Twc = &translations[id*3];
+			Point cam_center = {
+				Twc[0],
+				Twc[1],
+				Twc[2]
+			};
+			Point map_point = {
+				(u-cx) * fy,
+				fx * fy,
+				(cy-v) * fx
+			};
+			lines.push_back(cam_center);
+			lines.push_back(transformPoint(scalePoint(map_point,lineLength),Rwc,Twc));
+		}
 	}
-	fclose(f);
+	fclose(keymatch_file);
+	FILE* mappoint_file = fopen(argv[3],"r");
+	for (int i=0;i<point_index;i++)
+		fgets(buffer,2048,mappoint_file);
+	if (fgets(buffer,2048,mappoint_file)) {
+		sscanf(buffer,"%f %f %f",&target.x,&target.y,&target.z);
+	}
+	fclose(mappoint_file);
 
 	SDL_Init(SDL_INIT_VIDEO);
 	SDL_WM_SetCaption("Viz Cam", NULL);
@@ -203,6 +264,7 @@ int main(int argc,char* argv[]) {
 	}
 
 //	atexit(SQL_Quit);
+	free(camera_valid);
 
 	return 0;
 }
