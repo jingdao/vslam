@@ -22,6 +22,7 @@ double upX=0,upY=0,upZ=1;
 int screenWidth = 1100, screenHeight = 750;
 float cameraSize = 0.1;
 bool* camera_valid;
+FILE* keymatch_file,*mappoint_file;
 std::vector<CamModel> camera_location;
 std::vector<float> rotations;
 std::vector<float> translations;
@@ -35,6 +36,7 @@ float fx = 971.760406;
 float fy = 971.138862;
 float cx = 319.500000;
 float cy = 239.500000;
+char buffer[2048];
 
 void quaternionToRotation(float qx,float qy,float qz,float qw,float* R) {
 	R[0] = 1 - 2*qy*qy - 2 * qz*qz;
@@ -63,6 +65,43 @@ Point scalePoint(Point p,float length) {
 	q.y = p.y / magnitude * length;
 	q.z = p.z / magnitude * length;
 	return q;
+}
+
+void getKeymatch() {
+	memset(camera_valid,0,camera_location.size()*sizeof(bool));
+	lines.clear();
+	if (fgets(buffer,2048,keymatch_file)) {
+		char* tok = strtok(buffer," ");
+		while (tok) {
+			int id = atoi(tok);
+			camera_valid[id] = true;
+			tok = strtok(NULL," \n");
+			float u = atof(tok);
+			tok = strtok(NULL," \n");
+			float v = atof(tok);
+			tok = strtok(NULL," \n");
+			float* Rwc = &rotations[id*9];
+			float* Twc = &translations[id*3];
+			Point cam_center = {
+				Twc[0],
+				Twc[1],
+				Twc[2]
+			};
+			Point map_point = {
+				(u-cx) * fy,
+				fx * fy,
+				(cy-v) * fx
+			};
+			lines.push_back(cam_center);
+			lines.push_back(transformPoint(scalePoint(map_point,lineLength),Rwc,Twc));
+		}
+	}
+}
+
+void getMappoint() {
+	if (fgets(buffer,2048,mappoint_file)) {
+		sscanf(buffer,"%f %f %f",&target.x,&target.y,&target.z);
+	}
 }
 
 void drawLine(Point p1,Point p2) {
@@ -115,13 +154,15 @@ void draw() {
 }
 
 int main(int argc,char* argv[]) {
-	if (argc < 5) {
-		printf("./plot_epipole pose_stamped.txt key.match map_point.txt point_index\n");
+	if (argc < 4) {
+		printf("./plot_epipole pose_stamped.txt key.match map_point.txt [point_index]\n");
 		return 1;
 	}
+	int point_index = 0;
+	if (argc > 4)
+		point_index = atoi(argv[4]);
 
 	FILE* f = fopen(argv[1],"r");
-	char buffer[2048];
 	float R[9];
 	float Q[4];
 	float T[3];
@@ -149,45 +190,14 @@ int main(int argc,char* argv[]) {
 	}
 	fclose(f);
 	camera_valid = (bool*) malloc(camera_location.size()*sizeof(bool));
-	FILE* keymatch_file = fopen(argv[2],"r");
-	int point_index = atoi(argv[4]); //1-based
+	keymatch_file = fopen(argv[2],"r");
 	for (int i=0;i<point_index;i++)
 		fgets(buffer,2048,keymatch_file);
-	memset(camera_valid,0,camera_location.size()*sizeof(bool));
-	if (fgets(buffer,2048,keymatch_file)) {
-		char* tok = strtok(buffer," ");
-		while (tok) {
-			int id = atoi(tok);
-			camera_valid[id] = true;
-			tok = strtok(NULL," \n");
-			float u = atof(tok);
-			tok = strtok(NULL," \n");
-			float v = atof(tok);
-			tok = strtok(NULL," \n");
-			float* Rwc = &rotations[id*9];
-			float* Twc = &translations[id*3];
-			Point cam_center = {
-				Twc[0],
-				Twc[1],
-				Twc[2]
-			};
-			Point map_point = {
-				(u-cx) * fy,
-				fx * fy,
-				(cy-v) * fx
-			};
-			lines.push_back(cam_center);
-			lines.push_back(transformPoint(scalePoint(map_point,lineLength),Rwc,Twc));
-		}
-	}
-	fclose(keymatch_file);
-	FILE* mappoint_file = fopen(argv[3],"r");
+	getKeymatch();
+	mappoint_file = fopen(argv[3],"r");
 	for (int i=0;i<point_index;i++)
 		fgets(buffer,2048,mappoint_file);
-	if (fgets(buffer,2048,mappoint_file)) {
-		sscanf(buffer,"%f %f %f",&target.x,&target.y,&target.z);
-	}
-	fclose(mappoint_file);
+	getMappoint();
 
 	SDL_Init(SDL_INIT_VIDEO);
 	SDL_WM_SetCaption("Viz Cam", NULL);
@@ -216,6 +226,10 @@ int main(int argc,char* argv[]) {
 						break;
 						case SDLK_DOWN:
 						cameraZ -= 1;
+						break;
+						case 'n':
+						getKeymatch();
+						getMappoint();
 						break;
 						default:
 						break;
@@ -265,6 +279,8 @@ int main(int argc,char* argv[]) {
 
 //	atexit(SQL_Quit);
 	free(camera_valid);
+	fclose(keymatch_file);
+	fclose(mappoint_file);
 
 	return 0;
 }

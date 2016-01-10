@@ -22,8 +22,8 @@ double fx = 971.760406;
 double fy = 971.138862;
 double cx = 319.500000;
 double cy = 239.500000;
-int numIterations = 50;
-int numSeeds = 1000;
+int numIterations = 20;
+int numSeeds = 10;
 double huber_threshold = -1;
 //double huber_threshold = sqrt(5.991);
 //lidar to camera transformation
