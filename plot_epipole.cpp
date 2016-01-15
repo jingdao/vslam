@@ -31,12 +31,13 @@ Point target;
 int mouseIndex = 0;
 int previousX,previousY;
 double scrollSpeed = 1.1;
-double lineLength = 5;
+double lineLength = 10;
 float fx = 971.760406;
 float fy = 971.138862;
 float cx = 319.500000;
 float cy = 239.500000;
 char buffer[2048];
+float Twc[] = {0,-0.25,-0.18};
 
 void quaternionToRotation(float qx,float qy,float qz,float qw,float* R) {
 	R[0] = 1 - 2*qy*qy - 2 * qz*qz;
@@ -174,6 +175,9 @@ int main(int argc,char* argv[]) {
 	Point br = {cameraSize,cameraSize,-cameraSize};
 	while (fgets(buffer,2048,f)) {
 		if (sscanf(buffer,"%f %f %f %f %f %f %f %f\n",&t,T,T+1,T+2,Q,Q+1,Q+2,Q+3) == 8) {
+			T[0] += Twc[0];
+			T[1] += Twc[1];
+			T[2] += Twc[2];
 			CamModel cam;
 			quaternionToRotation(Q[1],Q[2],Q[3],Q[0],R);
 			cam.center = transformPoint(center,R,T);

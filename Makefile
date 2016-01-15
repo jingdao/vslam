@@ -2,7 +2,7 @@ CXX       = g++
 
 G2O_DIR=/home/jd/Downloads/g2o-master
 
-all: pixel_tracing test_g2o improc match_g2o viz_cam match_solver plot_epipole
+all: pixel_tracing test_g2o improc match_g2o viz_cam match_solver plot_epipole check_epipole
 
 pixel_tracing: pixel_tracing.cpp pose_est.cpp geometry.h
 	$(CXX) -ggdb3 -o $@ pixel_tracing.cpp pose_est.cpp -lSDL
@@ -24,3 +24,6 @@ viz_cam: viz_cam.cpp
 
 plot_epipole: plot_epipole.cpp
 	$(CXX) -Wall -std=c++11 -ggdb3 -o $@ $< -lSDL -lGL -lGLU
+
+check_epipole: check_epipole.cpp
+	$(CXX) -Wall -std=c++11 -ggdb3 -o $@ $<

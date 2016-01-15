@@ -21,7 +21,7 @@ then
 	rm $2/*.ppm
 	rm $2/*.pgm
 	rm $2/*.key
-	$BAG $1 $2 /camera/image_raw -s 2 -t 6 -r 0.4 -p $2/hector_pose.txt
+	$BAG $1 $2 /camera/image_raw -s 2 -t 10 -r 0.5 -p $2/hector_pose.txt
 	i=0
 	while true
 	do
@@ -36,11 +36,11 @@ then
 	done
 	./improc $2/key.match $2/*.key
 fi
-set -x
+./check_epipole $2/pose_stamped.txt $2/key.match $2/valid.match
 if $use_g2o
 then
-	./match_g2o $2/pose_stamped.txt $2/key.match $2/map_point.txt
+	./match_g2o $2/pose_stamped.txt $2/valid.match $2/map_point.txt
 else
-	./match_solver $2/pose_stamped.txt $2/key.match $2/map_point.txt
+	./match_solver $2/pose_stamped.txt $2/valid.match $2/map_point.txt
 fi
 ./viz_cam $2/pose_stamped.txt $2/map_point.txt
