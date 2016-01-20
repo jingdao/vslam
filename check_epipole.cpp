@@ -18,6 +18,8 @@ float angle_threshold = 1.0 / 360 * M_PI;
 std::vector<float> rotations;
 std::vector<float> translations;
 char buffer[2048];
+int numInlier = 0;
+int numOutlier = 0;
 
 void quaternionToRotation(float qx,float qy,float qz,float qw,float* R) {
 	R[0] = 1 - 2*qy*qy - 2 * qz*qz;
@@ -158,11 +160,14 @@ int main(int argc,char* argv[]) {
 					buffer_c += sprintf(buffer_c," ");
 				buffer_c += sprintf(buffer_c,"%d %f %f",id_list[i],u_list[i],v_list[i]);
 				numValid++;	
-			}
+				numInlier++;
+			} else
+				numOutlier++;
 		}
 		if (numValid >= 2)
 			fprintf(validmatch_file,"%s\n",buffer);
 	}
 	fclose(keymatch_file);
 	fclose(validmatch_file);
+	printf("check_epipole: %d inliers %d outliers\n",numInlier,numOutlier);
 }

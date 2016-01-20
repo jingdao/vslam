@@ -3,7 +3,7 @@
 SIFT=/home/jd/Downloads/siftDemoV4/sift
 BAG=$(rospack find lidar_mapping)/bag2img.py
 process_image=false
-use_g2o=false
+use_g2o=true
 
 if [ "$#" -ne "2" ] || ! [ -f $1 ] || ! [ -d $2 ]
 then
@@ -11,13 +11,14 @@ then
 	exit
 fi
 
-if ! [ -f $2/hector_pose.txt ]
-then
-	echo "Require $2/hector_pose.txt"
-fi
-
 if $process_image
 then
+	if ! [ -f $2/hector_pose.txt ]
+	then
+		echo "Require $2/hector_pose.txt"
+		exit
+	fi
+
 	rm $2/*.ppm
 	rm $2/*.pgm
 	rm $2/*.key
