@@ -57,8 +57,8 @@ class EdgeProjection : public g2o::BaseUnaryEdge<2, Eigen::Vector2d, VertexMapPo
 	void computeError() {
 		const VertexMapPoint* mp = static_cast<const VertexMapPoint*>(vertex(0));
 		Eigen::Vector3d xc = Rcw * mp->estimate() + Tcw;
-		double u = - fx * xc(0) / xc(2);
-		double v = - fy * xc(1) / xc(2);
+		double u = fx * xc(0) / xc(2);
+		double v = fy * xc(1) / xc(2);
 		_error(0) = u - measurement()(0);
 		_error(1) = v - measurement()(1);
 	}
@@ -66,12 +66,12 @@ class EdgeProjection : public g2o::BaseUnaryEdge<2, Eigen::Vector2d, VertexMapPo
 	void linearizeOplus() {
 		const VertexMapPoint* mp = static_cast<const VertexMapPoint*>(vertex(0));
 		Eigen::Vector3d xc = Rcw * mp->estimate() + Tcw;
-		_jacobianOplusXi(0,0) = fx / xc(2) / xc(2) * (Rcw(2,0) * xc(0) - Rcw(0,0) * xc(2));
-		_jacobianOplusXi(0,1) = fx / xc(2) / xc(2) * (Rcw(2,1) * xc(0) - Rcw(0,1) * xc(2));
-		_jacobianOplusXi(0,2) = fx / xc(2) / xc(2) * (Rcw(2,2) * xc(0) - Rcw(0,2) * xc(2));
-		_jacobianOplusXi(1,0) = fy / xc(2) / xc(2) * (Rcw(2,0) * xc(1) - Rcw(1,0) * xc(2));
-		_jacobianOplusXi(1,1) = fy / xc(2) / xc(2) * (Rcw(2,1) * xc(1) - Rcw(1,1) * xc(2));
-		_jacobianOplusXi(1,2) = fy / xc(2) / xc(2) * (Rcw(2,2) * xc(1) - Rcw(1,2) * xc(2));
+		_jacobianOplusXi(0,0) = - fx / xc(2) / xc(2) * (Rcw(2,0) * xc(0) - Rcw(0,0) * xc(2));
+		_jacobianOplusXi(0,1) = - fx / xc(2) / xc(2) * (Rcw(2,1) * xc(0) - Rcw(0,1) * xc(2));
+		_jacobianOplusXi(0,2) = - fx / xc(2) / xc(2) * (Rcw(2,2) * xc(0) - Rcw(0,2) * xc(2));
+		_jacobianOplusXi(1,0) = - fy / xc(2) / xc(2) * (Rcw(2,0) * xc(1) - Rcw(1,0) * xc(2));
+		_jacobianOplusXi(1,1) = - fy / xc(2) / xc(2) * (Rcw(2,1) * xc(1) - Rcw(1,1) * xc(2));
+		_jacobianOplusXi(1,2) = - fy / xc(2) / xc(2) * (Rcw(2,2) * xc(1) - Rcw(1,2) * xc(2));
 	}
 };
 
@@ -93,8 +93,8 @@ int main(int argc,char* argv[]) {
 		return 1;
 	}
 	srand(time(NULL));
-	Rcl << 1,0,0,0,0,1,0,-1,0;
-	Tcl << 0,0.25,0.18;
+	Rcl << 1,0,0,0,0,-1,0,1,0;
+	Tcl << 0,-0.25,-0.18;
 
 	//read pose file
 	FILE* pose_stamped = fopen(argv[1],"r");
@@ -161,7 +161,7 @@ int main(int argc,char* argv[]) {
 			EdgeProjection* e = new EdgeProjection();
 			e->setInformation(Eigen::Matrix<double,2,2>::Identity());
 			e->setVertex(0,vt);
-			e->setMeasurement(Eigen::Vector2d(u-cx,cy-v));
+			e->setMeasurement(Eigen::Vector2d(u-cx,v-cy));
 			e->Rcw = rotations[id];
 			e->Tcw = translations[id];
 			if (huber_threshold > 0) {
@@ -195,9 +195,9 @@ int main(int argc,char* argv[]) {
 		for (unsigned int i=0;i<index.size();i++) {
 			id = index[i];
 			Eigen::Vector3d xc = rotations[id] * bestEstimate + translations[id];
-			double u = - fx * xc(0) / xc(2);
-			double v = - fy * xc(1) / xc(2);
-			printf("%d %f %f ",id,u+cx,cy-v);
+			double u = fx * xc(0) / xc(2);
+			double v = fy * xc(1) / xc(2);
+			printf("%d %f %f ",id,u+cx,v+cy);
 			c += sprintf(c,"%4.2f %4.2f %4.2f\n%4.2f %4.2f %4.2f\n%4.2f %4.2f %4.2f\n",
 						rotations[id](0,0),rotations[id](0,1),rotations[id](0,2),
 						rotations[id](1,0),rotations[id](1,1),rotations[id](1,2),

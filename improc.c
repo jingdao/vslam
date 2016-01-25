@@ -285,9 +285,9 @@ void drawKeyPoint(unsigned char* dst,Descriptor* desc,int k,int width,int height
 	int x = (int) desc->coord[k*2];
 	int y = (int) desc->coord[k*2+1];
 	int top = y - POINT_SIZE < 0 ? 0 : y - POINT_SIZE;
-	int bottom = y + POINT_SIZE > height ? height : y + POINT_SIZE;
+	int bottom = y + POINT_SIZE >= height ? height-1 : y + POINT_SIZE;
 	int left = x - POINT_SIZE < 0 ? 0 : x - POINT_SIZE;
-	int right = x + POINT_SIZE > width ? width : x + POINT_SIZE;
+	int right = x + POINT_SIZE >= width ? width-1 : x + POINT_SIZE;
 	//TOP
 	int i=left;
 	unsigned char* c = dst + (top*width+left)*3;
