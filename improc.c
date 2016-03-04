@@ -5,7 +5,6 @@
 #include <stdbool.h>
 #include "lapack.h"
 #define POINT_SIZE 5
-#define MATCH_THRESHOLD 0.3
 #define SAVE_KEYPOINTS 1
 
 typedef struct {
@@ -334,7 +333,7 @@ double desc_dist(unsigned char* d1,unsigned char* d2,int dimension) {
 	return res;
 }
 
-MatchArray matchDescriptors(Descriptor** desc,int numDescriptors) {
+MatchArray matchDescriptors(Descriptor** desc,int numDescriptors, float match_threshold) {
 	int* matches = malloc(numDescriptors * sizeof(int));
 	bool** visited = malloc(numDescriptors * sizeof(bool*));
 	MatchArray matcharray = {0,NULL};
@@ -376,7 +375,7 @@ MatchArray matchDescriptors(Descriptor** desc,int numDescriptors) {
 						s2 = score;
 					}
 				}
-				if (s1 < MATCH_THRESHOLD * MATCH_THRESHOLD * s2) {
+				if (s1 < match_threshold * match_threshold * s2) {
 					visited[m][i] = true;
 					visited[n][i1] = true;
 					foundMatch = true;
@@ -475,8 +474,10 @@ Bitmap* readPPM(char* filename) {
 
 Descriptor* readKeyFile(char* filename) {
 	FILE* f = fopen(filename,"r");
-	if (!f)
+	if (!f) {
+		printf("Cannot open %s\n",filename);
 		return NULL;
+	}
 	Descriptor* desc = malloc(sizeof(Descriptor));
 	if (fscanf(f,"%d %d",&desc->size,&desc->dimension)==2) {
 		desc->data = malloc(desc->size * desc->dimension);
@@ -503,7 +504,7 @@ Descriptor* readKeyFile(char* filename) {
 }
 
 void displayHelp() {
-	printf("./improc matchFile *.key\n");
+	printf("./improc match_threshold matchFile *.key\n");
 }
 
 int main(int argc,char* argv[]) {
@@ -511,16 +512,22 @@ int main(int argc,char* argv[]) {
 		displayHelp();
 		return 1;
 	}
-	Descriptor** desc = malloc((argc-2) * sizeof(Descriptor*));
-	matchFile = fopen(argv[1],"w");
+	float match_threshold = atof(argv[1]);
+	Descriptor** desc = malloc((argc-3) * sizeof(Descriptor*));
+	matchFile = fopen(argv[2],"w");
 	if (!matchFile) {
-		printf("Cannot open %s\n",argv[1]);
+		printf("Cannot open %s\n",argv[2]);
 		return 1;
 	}
-	matchFileName = argv[1];
-	for (int i=2;i<argc;i++)
-		desc[i-2] = readKeyFile(argv[i]);
-	MatchArray matcharray = matchDescriptors(desc,argc-2);
+	matchFileName = argv[2];
+	for (int i=3;i<argc;i++) {
+		Descriptor* d = readKeyFile(argv[i]);
+		if (d)
+			desc[i-3] = d;
+		else
+			return 1;
+	}
+	MatchArray matcharray = matchDescriptors(desc,argc-3,match_threshold);
 	for (int i=0;i<matcharray.numMatches;i++) {
 		Match m = matcharray.matches[i];
 		fprintf(matchFile,"%d %f %f",m.image_index[0],m.xi[0],m.yi[0]);
@@ -532,13 +539,13 @@ int main(int argc,char* argv[]) {
 	printf("Wrote %d matches to %s\n",matcharray.numMatches,matchFileName);
 #if SAVE_KEYPOINTS
 	int numKeypoints = 0;
-	for (int i=0;i<argc-2;i++)
+	for (int i=0;i<argc-3;i++)
 		numKeypoints += desc[i]->size;
 	unsigned char* pixels = malloc(numKeypoints * 3);
-	descriptor_transform(desc,argc-2,numKeypoints,pixels);
+	descriptor_transform(desc,argc-3,numKeypoints,pixels);
 	char buffer[256];
 	unsigned char* rgb = pixels;
-	for (int i=2;i<argc;i++) {
+	for (int i=3;i<argc;i++) {
 		int l = strlen(argv[i]);
 		int j;
 		for (j=l-1;j>=0;j--)
@@ -553,8 +560,8 @@ int main(int argc,char* argv[]) {
 			rgb2gray(bmp->data,gray,bmp->width,bmp->height);
 			gray2rgb(gray,bmp->data,bmp->width,bmp->height);
 			sprintf(buffer+j,"-desc.ppm");
-			for (int k=0;k<desc[i-2]->size;k++) {
-				drawKeyPoint(bmp->data,desc[i-2],k,bmp->width,bmp->height,rgb[0],rgb[1],rgb[2]);
+			for (int k=0;k<desc[i-3]->size;k++) {
+				drawKeyPoint(bmp->data,desc[i-3],k,bmp->width,bmp->height,rgb[0],rgb[1],rgb[2]);
 				rgb += 3;
 			}
 			writePPM(buffer,bmp->data,bmp->width,bmp->height);
@@ -595,7 +602,7 @@ int main(int argc,char* argv[]) {
 	}
 	if (matcharray.matches)
 		free(matcharray.matches);
-	for (int i=0;i<argc-2;i++) {
+	for (int i=0;i<argc-3;i++) {
 		free(desc[i]->data);
 		free(desc[i]->coord);
 		free(desc[i]);
