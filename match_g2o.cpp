@@ -23,13 +23,14 @@ double fy = 971.138862;
 double cx = 319.500000;
 double cy = 239.500000;
 int numIterations = 10;
-int numSeeds = 10;
+int numSeeds = 20;
 double huber_threshold = -1;
+double error_threshold = 15;
 //double huber_threshold = sqrt(5.991);
 //lidar to camera transformation
 Mat3 Rcl;
 Eigen::Vector3d Tcl;
-
+std::vector<Eigen::Vector3d> lidarcloud;
 
 class VertexMapPoint : public g2o::BaseVertex<3, Eigen::Vector3d> {
 	public:
@@ -87,9 +88,35 @@ void quaternionToRotation(double qx,double qy,double qz,double qw,double* R) {
 	R[8] = 1 - 2*qx*qx - 2 * qy*qy;
 }
 
+void fixScale(std::vector<Eigen::Vector3d> *scan, std::vector<Eigen::Vector3d> *map, Mat3 Rcw, Eigen::Vector3d Tcw) {
+	Eigen::Vector3d midpoint = (*map)[0];
+	for (size_t i=1;i<map->size();i++) {
+		if (fabs((*map)[i](2)) < fabs(midpoint(2)))
+			midpoint = (*map)[i];
+	}
+	Eigen::Vector3d mc = Rcw * midpoint + Tcw;
+	Eigen::Vector3d ref = Rcw * (*scan)[0] + Tcw;
+	double minAngle = mc.cross(ref).norm() / ref.norm();
+	for (size_t j=1;j<scan->size();j++) {
+		Eigen::Vector3d rc = Rcw * (*scan)[j] + Tcw;
+		double angle = mc.cross(rc).norm() / rc.norm();
+		if (angle < minAngle) {
+			ref = rc;
+			minAngle = angle;
+		}
+	}
+	double scale = ref.norm() / mc.norm();
+	for (size_t i=0;i<map->size();i++) {
+		Eigen::Vector3d xc = Rcw * (*map)[i] + Tcw;
+		xc *= scale;
+		(*map)[i] = Rcw.transpose() * (xc - Tcw); 
+	}
+	printf("Fixed scale by %f\n",scale);
+}
+
 int main(int argc,char* argv[]) {
 	if (argc < 4) {
-		printf("./match_g2o pose_stamped.txt key.match map_point.txt\n");
+		printf("./match_g2o pose_stamped.txt key.match map_point.txt [lidar_map.txt]\n");
 		return 1;
 	}
 	srand(time(NULL));
@@ -119,11 +146,30 @@ int main(int argc,char* argv[]) {
 	}
 	fclose(pose_stamped);
 
+	if (argc > 4) {
+		FILE *f = fopen(argv[4],"r");
+		if (f) {
+			while (fgets(buffer,128,f)) {
+				float x,y,z;
+				if (sscanf(buffer,"%f %f %f",&x,&y,&z)==3) {
+					Eigen::Vector3d v(x,y,z);
+					lidarcloud.push_back(v);
+				}
+			}
+			fclose(f);
+		}
+	}
+
 	struct timespec start,end;
 	clock_gettime(CLOCK_MONOTONIC,&start);
 	int count_points = 0;
 	int cjIterations = 0;
 	double RMSE = 0;
+	int numInliers = 0;
+	int numOutliers = 0;
+	std::vector<Eigen::Vector3d> map_position;
+	std::vector< std::vector<int> > map_index;
+	std::vector<double> map_error;
 	FILE* key_match = fopen(argv[2],"r");
 	FILE* map_point = fopen(argv[3],"w");
 	if (!(key_match && map_point))
@@ -179,12 +225,18 @@ int main(int argc,char* argv[]) {
 			vt->setEstimate(Eigen::Vector3d(1.0 / RAND_MAX * rand(), 1.0 / RAND_MAX * rand(), 1.0 / RAND_MAX * rand()));
 			optimizer.initializeOptimization();
 			cjIterations += optimizer.optimize(numIterations);
-			if (i==0 || optimizer.activeChi2() < leastError) {
+			if (i==0 || (optimizer.activeChi2() < leastError && vt->estimate()(1) > 0)) {
 				bestEstimate = vt->estimate();
 				leastError = optimizer.activeChi2();
 			}
 		}
 		
+		if (leastError < error_threshold && bestEstimate(1) > 0) {
+			numInliers++;
+		} else {
+			numOutliers++;
+			continue;
+		}
 
 		//record result
 		RMSE += leastError / index.size();
@@ -207,14 +259,25 @@ int main(int argc,char* argv[]) {
 		printf("\n%s",buffer);
 		printf("estimate: %f %f %f %lu %f\n",bestEstimate(0),bestEstimate(1),bestEstimate(2),index.size(),leastError);
 #else
-		fprintf(map_point,"%f %f %f %lu %f\n",bestEstimate(0),bestEstimate(1),bestEstimate(2),index.size(),leastError);
+//		fprintf(map_point,"%f %f %f %lu %f\n",bestEstimate(0),bestEstimate(1),bestEstimate(2),index.size(),leastError);
+		map_position.push_back(bestEstimate);
+		map_index.push_back(index);
+		map_error.push_back(leastError);
+
 #endif
 		count_points++;
+	}
+	if (lidarcloud.size() > 0) {
+		fixScale(&lidarcloud,&map_position,rotations[0],translations[0]);
+	}
+	for (size_t i=0;i<map_position.size();i++) {
+		fprintf(map_point,"%f %f %f %lu %f\n",map_position[i](0),map_position[i](1),map_position[i](2),map_index[i].size(),map_error[i]);
 	}
 	clock_gettime(CLOCK_MONOTONIC,&end);
 	double dt = end.tv_sec - start.tv_sec + 0.000000001 * (end.tv_nsec - start.tv_nsec);
 	RMSE = sqrt(RMSE / count_points);
 	printf("Optimized %d map points (%d iter, %fs, RMSE = %f)\n",count_points, cjIterations, dt, RMSE);
+	printf("triangulation: %d inliers %d outliers\n",numInliers,numOutliers);
 	fclose(key_match);
 	fclose(map_point);
 

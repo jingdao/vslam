@@ -546,9 +546,8 @@ int main(int argc,char* argv[]) {
 	char buffer[256];
 	unsigned char* rgb = pixels;
 	for (int i=3;i<argc;i++) {
-		int l = strlen(argv[i]);
 		int j;
-		for (j=l-1;j>=0;j--)
+		for (j=strlen(argv[i])-1;j>=0;j--)
 			if (argv[i][j] == '.')
 				break;
 		memcpy(buffer,argv[i],j+1);
@@ -576,10 +575,10 @@ int main(int argc,char* argv[]) {
 			for (int k=0;k<matcharray.numMatches;k++) {
 				Match mt = matcharray.matches[k];
 				for (int l=0;l<mt.numImages;l++) {
-					if (mt.image_index[l] == i-2) {
+					if (mt.image_index[l] == i-3) {
 						unsigned char r,g,b;
 						colormap(1.0 * k / matcharray.numMatches, &r, &g, &b);
-						drawKeyPoint(bmp->data,desc[i-2],mt.desc_index[l],bmp->width,bmp->height,r,g,b);
+						drawKeyPoint(bmp->data,desc[i-3],mt.desc_index[l],bmp->width,bmp->height,r,g,b);
 						break;
 					}
 				}

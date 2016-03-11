@@ -23,10 +23,35 @@ int screenWidth = 1100, screenHeight = 750;
 float cameraSize = 0.1;
 std::vector<CamModel> camera_location;
 std::vector<Point> pointcloud;
+std::vector<Point> lidarcloud;
 int mouseIndex = 0;
 int previousX,previousY;
 double scrollSpeed = 1.1;
 float Twc[] = {0,-0.25,-0.18};
+float cloudMin=0,cloudMax=0;
+
+void colormap (float f,unsigned char *r,unsigned char *g,unsigned char *b) {
+	*r=0;
+	*g=0;
+	*b=0;
+	if (f<=0) {
+		*b = 128;
+	} else if (f <= 0.25) {
+		*g = (unsigned char) f / 0.25 * 255;
+		*b = (unsigned char) 128 * (1 - f / 0.25);
+	} else if (f <= 0.5) {
+		*g = 255;
+		*r = (unsigned char) (f - 0.25) / 0.25 * 255;
+	} else if (f <= 0.75) {
+		*r = 255;
+		*g = (unsigned char) 255 + (0.5 - f) / 0.25 * 127;
+	} else if (f <= 1) {
+		*r = 255;
+		*g = (unsigned char) 128 * (1 - f) / 0.25;
+	} else {
+		*r = 255;
+	}
+}
 
 void quaternionToRotation(float qx,float qy,float qz,float qw,float* R) {
 	R[0] = 1 - 2*qy*qy - 2 * qz*qz;
@@ -76,11 +101,17 @@ void draw() {
 		drawLine(camera_location[n].bl,camera_location[n].br);
 	}
 
-	glPointSize(2.0);
+	glPointSize(5.0);
 	glBegin(GL_POINTS);
+	unsigned char r,g,b;
 	for (size_t n = 0; n < pointcloud.size(); n++){
-		glColor3ub(255,255,255);
+		colormap((pointcloud[n].z - cloudMin)/(cloudMax - cloudMin),&r,&g,&b);
+		glColor3ub(r,g,b);
 		glVertex3d(pointcloud[n].x,pointcloud[n].y,pointcloud[n].z);
+	}
+	glColor3ub(255,255,255);
+	for (size_t n = 0; n < lidarcloud.size(); n++){
+		glVertex3d(lidarcloud[n].x,lidarcloud[n].y,lidarcloud[n].z);
 	}
 	glEnd();
 
@@ -93,7 +124,7 @@ void draw() {
 
 int main(int argc,char* argv[]) {
 	if (argc < 3) {
-		printf("./viz_cam pose_stamped.txt map_point.txt\n");
+		printf("./viz_cam pose_stamped.txt map_point.txt [lidar_map.txt]\n");
 		return 1;
 	}
 
@@ -127,10 +158,26 @@ int main(int argc,char* argv[]) {
 	f = fopen(argv[2],"r");
 	while (fgets(buffer,128,f)) {
 		Point p;
-		if (sscanf(buffer,"%f %f %f",&p.x,&p.y,&p.z)==3)
+		if (sscanf(buffer,"%f %f %f",&p.x,&p.y,&p.z)==3) {
+			if (pointcloud.size()==0 || p.z < cloudMin)
+				cloudMin = p.z;
+			if (pointcloud.size()==0 || p.z > cloudMax)
+				cloudMax = p.z;
 			pointcloud.push_back(p);
+		}
 	}
 	fclose(f);
+	if (argc > 3) {
+		f = fopen(argv[3],"r");
+		if (f) {
+			while (fgets(buffer,128,f)) {
+				Point p;
+				if (sscanf(buffer,"%f %f %f",&p.x,&p.y,&p.z)==3)
+					lidarcloud.push_back(p);
+			}
+			fclose(f);
+		}
+	}
 
 	SDL_Init(SDL_INIT_VIDEO);
 	SDL_WM_SetCaption("Viz Cam", NULL);
