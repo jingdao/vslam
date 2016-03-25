@@ -4,6 +4,7 @@
 #include <time.h>
 #include <vector>
 #include <iostream>
+#include <algorithm>
 #include "g2o/core/eigen_types.h"
 #include "g2o/core/sparse_optimizer.h"
 #include "g2o/core/block_solver.h"
@@ -25,7 +26,7 @@ double cy = 239.500000;
 int numIterations = 10;
 int numSeeds = 20;
 double huber_threshold = -1;
-double error_threshold = 15;
+double error_threshold = 5;
 //double huber_threshold = sqrt(5.991);
 //lidar to camera transformation
 Mat3 Rcl;
@@ -116,12 +117,13 @@ void fixScale(std::vector<Eigen::Vector3d> *scan, std::vector<Eigen::Vector3d> *
 
 int main(int argc,char* argv[]) {
 	if (argc < 4) {
-		printf("./match_g2o pose_stamped.txt key.match map_point.txt [lidar_map.txt]\n");
+		printf("./match_g2o pose_stamped.txt key.match map_point.txt [-m lidar_map.txt -f fx -i nIter]\n");
 		return 1;
 	}
 	srand(time(NULL));
 	Rcl << 1,0,0,0,0,-1,0,1,0;
-	Tcl << 0,-0.25,-0.18;
+//	Tcl << 0,-0.25,-0.18;
+	Tcl << 0,0.06,0;
 
 	//read pose file
 	FILE* pose_stamped = fopen(argv[1],"r");
@@ -146,17 +148,24 @@ int main(int argc,char* argv[]) {
 	}
 	fclose(pose_stamped);
 
-	if (argc > 4) {
-		FILE *f = fopen(argv[4],"r");
-		if (f) {
-			while (fgets(buffer,128,f)) {
-				float x,y,z;
-				if (sscanf(buffer,"%f %f %f",&x,&y,&z)==3) {
-					Eigen::Vector3d v(x,y,z);
-					lidarcloud.push_back(v);
+	for (int i=4;i<argc-1;i++) {
+		if (strncmp(argv[i],"-m",2)==0) {
+			FILE *f = fopen(argv[++i],"r");
+			if (f) {
+				while (fgets(buffer,128,f)) {
+					float x,y,z;
+					if (sscanf(buffer,"%f %f %f",&x,&y,&z)==3) {
+						Eigen::Vector3d v(x,y,z);
+						lidarcloud.push_back(v);
+					}
 				}
+				fclose(f);
 			}
-			fclose(f);
+		} else if (strncmp(argv[i],"-f",2)==0) {
+			fx = atof(argv[++i]);
+			fy = fx;
+		} else if (strncmp(argv[i],"-i",2)==0) {
+			numIterations = atoi(argv[++i]);
 		}
 	}
 
@@ -170,6 +179,8 @@ int main(int argc,char* argv[]) {
 	std::vector<Eigen::Vector3d> map_position;
 	std::vector< std::vector<int> > map_index;
 	std::vector<double> map_error;
+	std::vector<double> depth;
+	double lidar_depth = -1;
 	FILE* key_match = fopen(argv[2],"r");
 	FILE* map_point = fopen(argv[3],"w");
 	if (!(key_match && map_point))
@@ -240,6 +251,7 @@ int main(int argc,char* argv[]) {
 
 		//record result
 		RMSE += leastError / index.size();
+		depth.push_back(bestEstimate(1));
 #if DEBUG_SINGLE
 		printf("reprojection: ");
 		char* c = buffer;
@@ -268,7 +280,14 @@ int main(int argc,char* argv[]) {
 		count_points++;
 	}
 	if (lidarcloud.size() > 0) {
-		fixScale(&lidarcloud,&map_position,rotations[0],translations[0]);
+//		fixScale(&lidarcloud,&map_position,rotations[0],translations[0]);
+		std::vector<double> dv;
+		for (size_t i=0;i<lidarcloud.size();i++) {
+			if (lidarcloud[i](1) > 0)
+				dv.push_back(lidarcloud[i](1));
+		}
+		std::sort(dv.begin(),dv.end());
+		lidar_depth = dv[dv.size()/2];
 	}
 	for (size_t i=0;i<map_position.size();i++) {
 		fprintf(map_point,"%f %f %f %lu %f\n",map_position[i](0),map_position[i](1),map_position[i](2),map_index[i].size(),map_error[i]);
@@ -276,8 +295,10 @@ int main(int argc,char* argv[]) {
 	clock_gettime(CLOCK_MONOTONIC,&end);
 	double dt = end.tv_sec - start.tv_sec + 0.000000001 * (end.tv_nsec - start.tv_nsec);
 	RMSE = sqrt(RMSE / count_points);
+	std::sort(depth.begin(),depth.end());
 	printf("Optimized %d map points (%d iter, %fs, RMSE = %f)\n",count_points, cjIterations, dt, RMSE);
 	printf("triangulation: %d inliers %d outliers\n",numInliers,numOutliers);
+	printf("depth max: %f median: %f lidar: %f (f = %f)\n",*std::max_element(depth.begin(),depth.end()),depth[depth.size()/2],lidar_depth,fx);
 	fclose(key_match);
 	fclose(map_point);
 

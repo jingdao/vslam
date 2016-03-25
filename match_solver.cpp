@@ -5,6 +5,7 @@
 #include <vector>
 #include <iostream>
 #include <Eigen/Core>
+//https://en.wikipedia.org/wiki/Essential_matrix#3D_points_from_corresponding_image_points
 
 #define DEBUG_SINGLE 0
 

@@ -105,7 +105,8 @@ void draw() {
 	glBegin(GL_POINTS);
 	unsigned char r,g,b;
 	for (size_t n = 0; n < pointcloud.size(); n++){
-		colormap((pointcloud[n].z - cloudMin)/(cloudMax - cloudMin),&r,&g,&b);
+//		colormap((pointcloud[n].z - cloudMin)/(cloudMax - cloudMin),&r,&g,&b);
+		colormap(0.5 + pointcloud[n].z / 4,&r,&g,&b);
 		glColor3ub(r,g,b);
 		glVertex3d(pointcloud[n].x,pointcloud[n].y,pointcloud[n].z);
 	}
