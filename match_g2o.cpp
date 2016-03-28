@@ -26,7 +26,8 @@ double cy = 239.500000;
 int numIterations = 10;
 int numSeeds = 20;
 double huber_threshold = -1;
-double error_threshold = 5;
+//double error_threshold = 5;
+double error_threshold = 5.991 * 2;
 //double huber_threshold = sqrt(5.991);
 //lidar to camera transformation
 Mat3 Rcl;
@@ -294,7 +295,7 @@ int main(int argc,char* argv[]) {
 	}
 	clock_gettime(CLOCK_MONOTONIC,&end);
 	double dt = end.tv_sec - start.tv_sec + 0.000000001 * (end.tv_nsec - start.tv_nsec);
-	RMSE = sqrt(RMSE / count_points);
+	RMSE = sqrt(RMSE / map_position.size());
 	std::sort(depth.begin(),depth.end());
 	printf("Optimized %d map points (%d iter, %fs, RMSE = %f)\n",count_points, cjIterations, dt, RMSE);
 	printf("triangulation: %d inliers %d outliers\n",numInliers,numOutliers);
