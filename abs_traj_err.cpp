@@ -72,6 +72,14 @@ int main(int argc, char* argv[]) {
 		dst.col(i) = findClosest(camera_time[i]);
 	}
 
+	double RMSE = 0;
+	for (int i=0;i<src.cols();i++) {
+		Eigen::Vector3d dy = src.col(i) - dst.col(i);
+		RMSE += dy.dot(dy);
+	}
+	RMSE = sqrt(RMSE / src.size());
+	printf("initial RMSE: %f\n",RMSE);
+
 	Eigen::Matrix<double,4,4> T = Eigen::umeyama(src,dst,true);
 	Eigen::Matrix<double,3,3> R = T.block<3,3>(0,0);
 	Eigen::Vector3d t = T.block<3,1>(0,3);
@@ -83,7 +91,7 @@ int main(int argc, char* argv[]) {
 	std::cout << "t=" << t << "\n";
 
 	if (argc >= 4) {
-		double RMSE = 0;
+		RMSE = 0;
 		FILE* aligned_pose = fopen(argv[3],"w");
 		for (int i=0;i<src.cols();i++) {
 			Eigen::Vector3d y = dst.col(i);
@@ -93,7 +101,7 @@ int main(int argc, char* argv[]) {
 			fprintf(aligned_pose,"%f %f %f %f\n",camera_time[i],y_est(0),y_est(1),y_est(2));
 		}
 		RMSE  = sqrt(RMSE / src.size());
-		printf("RMSE: %f\n",RMSE);
+		printf("final RMSE: %f\n",RMSE);
 		fclose(aligned_pose);
 	}
 }

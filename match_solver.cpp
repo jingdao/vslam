@@ -10,8 +10,8 @@
 #define DEBUG_SINGLE 0
 
 typedef Eigen::Matrix<double,3,3,Eigen::RowMajor> Mat3;
-double fx = 971.760406;
-double fy = 971.138862;
+double fx = 567;
+double fy = 567;
 double cx = 319.500000;
 double cy = 239.500000;
 //lidar to camera transformation
@@ -37,7 +37,7 @@ int main(int argc,char* argv[]) {
 	}
 	srand(time(NULL));
 	Rcl << 1,0,0,0,0,1,0,-1,0;
-	Tcl << 0,0.25,0.18;
+	Tcl << 0,0.06,0;
 
 	//read pose file
 	FILE* pose_stamped = fopen(argv[1],"r");

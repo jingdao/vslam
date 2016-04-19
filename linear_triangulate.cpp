@@ -4,8 +4,8 @@
 #include <time.h>
 #include <vector>
 #include <opencv/cv.h>
-float fx = 971.760406;
-float fy = 971.138862;
+float fx = 567;
+float fy = 567;
 float cx = 319.500000;
 float cy = 239.500000;
 float invfx = 1.0/fx;
@@ -105,7 +105,7 @@ float linear_triangulate(cv::KeyPoint kp1, cv::KeyPoint kp2, cv::Mat Rcw1, cv::M
 	float errX1 = u1 - kp1.pt.x;
 	float errY1 = v1 - kp1.pt.y;
 	float err1 = (errX1*errX1+errY1*errY1);
-	if(err1 >5.991*sigmaSquare1) {
+	if(err1 >5*sigmaSquare1) {
 #if DEBUG_OUTLIER
 		printf("err1: %f\n",err1);
 #endif
@@ -122,7 +122,7 @@ float linear_triangulate(cv::KeyPoint kp1, cv::KeyPoint kp2, cv::Mat Rcw1, cv::M
 	float errX2 = u2 - kp2.pt.x;
 	float errY2 = v2 - kp2.pt.y;
 	float err2 = (errX2*errX2+errY2*errY2);
-	if(err2>5.991*sigmaSquare2) {
+	if(err2>5*sigmaSquare2) {
 #if DEBUG_OUTLIER
 		printf("err2: %f\n",err2);
 #endif

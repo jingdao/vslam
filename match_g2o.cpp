@@ -19,15 +19,15 @@
 #define DEBUG_SINGLE 0
 
 typedef Eigen::Matrix<double,3,3,Eigen::RowMajor> Mat3;
-double fx = 971.760406;
-double fy = 971.138862;
+double fx = 567;
+double fy = 567;
 double cx = 319.500000;
 double cy = 239.500000;
 int numIterations = 10;
 int numSeeds = 20;
 double huber_threshold = -1;
 //double error_threshold = 5;
-double error_threshold = 5.991 * 2;
+double error_threshold = 10;
 //double huber_threshold = sqrt(5.991);
 //lidar to camera transformation
 Mat3 Rcl;
